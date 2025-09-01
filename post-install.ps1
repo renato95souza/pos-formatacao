@@ -1,366 +1,295 @@
-﻿# inicial.ps1
+﻿#requires -Version 5.1
+<#!
+    Script:    post-install.ps1
+    Autor:     Renato de Souza de Carvalho ;)
+    Objetivo:  Utilitário pós-formatação com menu e funções
+    Idioma:    pt-BR
 
-param(
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$PassThruArgs
+    Opções do menu:
+      1) Create Restore Point
+      2) Windows Debloat
+      3) Enable Sudo
+      4) Install Chocolatey
+      5) Install Apps with Chocolatey + Ensure-PyWin32
+
+    Observações:
+      - O script tenta se auto-elevar para Administrador.
+      - Exibe mensagens durante cada instalação.
+      - Ao final da Opção 5, roda Ensure-PyWin32 antes do sumário.
+      - Mantém um resumo de sucessos e falhas.
+!#>
+
+# ================= LISTA DE PACOTES =================
+$Global:ChocoPackages = @(
+    'nano','advanced-ip-scanner','putty','python','yt-dlp','ffmpeg','flameshot',
+    'adobereader','firefox','python3','teamviewer','notepadplusplus.install',
+    'bitwarden','mobaxterm','vlc','winrar','wget','spotify','powertoys',
+    'forticlientvpn','rufus','virtualbox'
 )
+# ====================================================
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
+#region Utilidades básicas
 
-# ===================== LISTA DE PACOTES (EDITÁVEL) =====================
-$Packages = @(
-    'nano'
-    'advanced-ip-scanner',
-    'putty',
-    'python',
-    'yt-dlp',
-    'ffmpeg',
-    'flameshot',
-    'adobereader',
-    'firefox',
-    'python3',
-    'teamviewer',
-    'notepadplusplus.install',
-    'bitwarden',
-    'mobaxterm',
-    'vlc',
-    'winrar',
-    'wget',
-    'spotify',
-    'powertoys',
-    'forticlientvpn',
-    'rufus',
-    'virtualbox'
-)
-# =======================================================================
+function Write-Info($msg)  { Write-Host "[INFO]  $msg" -ForegroundColor Cyan }
+function Write-Ok($msg)    { Write-Host "[OK]    $msg" -ForegroundColor Green }
+function Write-Warn($msg)  { Write-Host "[WARN]  $msg" -ForegroundColor Yellow }
+function Write-Err($msg)   { Write-Host "[ERRO]  $msg" -ForegroundColor Red }
 
-#region ===== Instalação do PyWin32 via pip =====
-function Ensure-PyWin32 {
-    Write-Info "Verificando instalação do pywin32 via pip..."
+function Pause-Enter {
+    Write-Host ""; Write-Host "Pressione ENTER para continuar..." -ForegroundColor DarkGray
+    [void][System.Console]::ReadLine()
+}
 
-    # Testa se Python Launcher está disponível
-    $pyCmd = Get-Command py -ErrorAction SilentlyContinue
-    if (-not $pyCmd) {
-        Write-Err "Python Launcher 'py' não encontrado. Certifique-se de que o pacote 'python3' foi instalado via Chocolatey."
-        return
+function Test-IsAdmin {
+    $current = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($current)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+}
+
+function Ensure-Admin {
+    if (-not (Test-IsAdmin)) {
+        Write-Warn "Este script precisa ser executado como Administrador. Reabrindo elevado..."
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = (Get-Process -Id $PID).Path
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+        $psi.Verb = "runas"
+        try {
+            [Diagnostics.Process]::Start($psi) | Out-Null
+        } catch {
+            Write-Err "Execução cancelada. Este script requer privilégios de administrador."
+        }
+        exit
     }
+}
 
-    try {
-        $check = & py -m pip show pywin32 2>$null
-        if ($LASTEXITCODE -eq 0 -and $check) {
-            # Já instalado
-            $verLine = ($check -split "`n" | Where-Object { $_ -like "Version:*" }) -replace "Version:\s*",""
-            Write-Ok "pywin32 já instalado (versão $verLine)."
+#endregion Utilidades básicas
+
+#region Restauração do Sistema
+
+function CreateSystemRestorePoint {
+    Write-Output "> Attempting to create a system restore point..."
+    
+    $SysRestore = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" -Name "RPSessionInterval"
+
+    if ($SysRestore.RPSessionInterval -eq 0) {
+        if ($Silent -or $( Read-Host -Prompt "System restore is disabled, would you like to enable it and create a restore point? (y/n)") -eq 'y') {
+            $enableSystemRestoreJob = Start-Job { 
+                try {
+                    Enable-ComputerRestore -Drive "$env:SystemDrive"
+                } catch {
+                    Write-Host "Error: Failed to enable System Restore: $_" -ForegroundColor Red
+                    Write-Output ""
+                    return
+                }
+            }
+    
+            $enableSystemRestoreJobDone = $enableSystemRestoreJob | Wait-Job -TimeOut 20
+
+            if (-not $enableSystemRestoreJobDone) {
+                Write-Host "Error: Failed to enable system restore and create restore point, operation timed out" -ForegroundColor Red
+                Write-Output ""
+                Write-Output "Press any key to continue anyway..."
+                $null = [System.Console]::ReadKey()
+                return
+            } else {
+                Receive-Job $enableSystemRestoreJob
+            }
+        } else {
+            Write-Output ""
             return
         }
-    } catch { }
-
-    Write-Info "Instalando pywin32 via pip..."
-    $res = Invoke-ProcessSilent -FilePath 'py' -ArgumentList @('-m','pip','install','pywin32')
-
-    if ($res.ExitCode -ne 0) {
-        Write-Err "Falha ao instalar pywin32:"
-        if ($res.StdErr) { Write-Host $res.StdErr }
-        elseif ($res.StdOut) { Write-Host $res.StdOut }
-        else { Write-Host "(sem saída de erro; código $($res.ExitCode))" }
-        return
     }
 
-    # Confirmação final
-    $check = & py -m pip show pywin32 2>$null
-    if ($LASTEXITCODE -eq 0 -and $check) {
-        $verLine = ($check -split "`n" | Where-Object { $_ -like "Version:*" }) -replace "Version:\s*",""
-        Write-Ok "pywin32 instalado com sucesso (versão $verLine)."
-    } else {
-        Write-Err "Não foi possível confirmar a instalação do pywin32."
-    }
-}
-#endregion
-
-#region ===== Console / Encoding / Mensagens =====
-function Set-ConsoleUtf8 {
-    try {
-        if ($Host.Name -eq 'ConsoleHost') { chcp 65001 > $null }
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        if ([Console]::InputEncoding.EncodingName -ne "Unicode (UTF-8)") {
-            [Console]::InputEncoding = [System.Text.Encoding]::UTF8
+    $createRestorePointJob = Start-Job { 
+        try {
+            $recentRestorePoints = Get-ComputerRestorePoint | Where-Object { (Get-Date) - [System.Management.ManagementDateTimeConverter]::ToDateTime($_.CreationTime) -le (New-TimeSpan -Hours 24) }
+        } catch {
+            Write-Host "Error: Unable to retrieve existing restore points: $_" -ForegroundColor Red
+            Write-Output ""
+            return
         }
-        $script:Glyphs = $true
-    } catch { $script:Glyphs = $false }
-}
-
-function Write-Ok   { param([string]$m) if ($script:Glyphs) { Write-Host "✅ $m" -ForegroundColor Green } else { Write-Host "[OK] $m" -ForegroundColor Green } }
-function Write-Warn { param([string]$m) if ($script:Glyphs) { Write-Host "⚠ $m"  -ForegroundColor Yellow } else { Write-Host "[WARN] $m" -ForegroundColor Yellow } }
-function Write-Err  { param([string]$m) if ($script:Glyphs) { Write-Host "❌ $m" -ForegroundColor Red }  else { Write-Host "[ERRO] $m" -ForegroundColor Red } }
-function Write-Info { param([string]$m) if ($script:Glyphs) { Write-Host "ℹ️ $m"  -ForegroundColor Cyan }  else { Write-Host "[INFO] $m" -ForegroundColor Cyan } }
-
-function Pause-Enter { [void](Read-Host "Pressione Enter para sair...") }
-#endregion
-
-#region ===== Admin / Elevação =====
-function Test-IsAdministrator {
-    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $pr = [Security.Principal.WindowsPrincipal]::new($id)
-    return $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-function Restart-AsAdministrator {
-    param([string[]]$Arguments)
-
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName  = "powershell.exe"
-
-    $quotedArgs = @()
-    foreach ($a in ($Arguments | ForEach-Object { $_ })) {
-        $quotedArgs += ('"'+ ($a -replace '"','\"') +'"')
+    
+        if ($recentRestorePoints.Count -eq 0) {
+            try {
+                Checkpoint-Computer -Description "Restore point created by Win11Debloat" -RestorePointType "MODIFY_SETTINGS"
+                Write-Output "System restore point created successfully"
+            } catch {
+                Write-Host "Error: Unable to create restore point: $_" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "A recent restore point already exists, no new restore point was created." -ForegroundColor Yellow
+        }
     }
+    
+    $createRestorePointJobDone = $createRestorePointJob | Wait-Job -TimeOut 20
 
-    # Prepara o ambiente em UTF-8 e executa o script elevado; -NoExit mantém a janela aberta
-    $prep = @(
-        'chcp 65001 > $null',
-        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
-        '[Console]::InputEncoding  = [System.Text.Encoding]::UTF8',
-        ('& "{0}" {1}' -f $PSCommandPath, ($quotedArgs -join ' '))
-    ) -join '; '
-
-    $psi.Arguments = "-NoExit -NoProfile -ExecutionPolicy Bypass -Command $prep"
-    $psi.Verb      = "runas"
-    $psi.UseShellExecute = $true
-
-    try {
-        [System.Diagnostics.Process]::Start($psi) | Out-Null
-        exit 0
-    } catch {
-        Write-Err "Execução cancelada. Este script requer privilégios de administrador."
-        exit 1
-    }
-}
-
-function Ensure-Administrator {
-    if (-not (Test-IsAdministrator)) {
-        Write-Warn "Este script precisa ser executado como Administrador. Tentando reiniciar elevado..."
-        Restart-AsAdministrator -Arguments $PassThruArgs
+    if (-not $createRestorePointJobDone) {
+        Write-Host "Error: Failed to create system restore point, operation timed out" -ForegroundColor Red
+        Write-Output ""
+        Write-Output "Press any key to continue anyway..."
+        $null = [System.Console]::ReadKey()
     } else {
-        Write-Ok "Privilégios de administrador confirmados."
+        Receive-Job $createRestorePointJob
+    }
+
+    Write-Output ""
+}
+
+#endregion Restauração do Sistema
+
+#region Windebloat
+
+function Run-Windebloat {
+    Write-Info "Executando Windebloat com parâmetros padrão..."
+    try {
+        & ([scriptblock]::Create((irm "https://debloat.raphi.re/"))) -RunDefaults
+        Write-Ok "Windebloat concluído."
+    } catch {
+        Write-Warn "Falha ao executar Windebloat: $($_.Exception.Message)"
     }
 }
-#endregion
 
-#region ===== Chocolatey (detectar/instalar) =====
-function Test-ChocolateyInstalled {
+#endregion Windebloat
+
+#region Sudo no Windows 11
+
+function Enable-WindowsSudo {
+    Write-Info "Habilitando 'sudo' no Windows 11 (modo normal)..."
     try {
-        $cmd = Get-Command choco -ErrorAction SilentlyContinue
-        if ($null -ne $cmd) { return $true }
-        return (Test-Path 'C:\ProgramData\chocolatey\bin\choco.exe')
-    } catch { return $false }
+        sudo config --enable normal
+        Write-Ok "'sudo' habilitado."
+    } catch {
+        Write-Warn "Falha ao habilitar 'sudo'. Verifique se o recurso está disponível nesta versão do Windows. Detalhe: $($_.Exception.Message)"
+    }
 }
 
-function Get-ChocolateyVersion {
-    try {
-        $ver = choco --version 2>$null
-        if ([string]::IsNullOrWhiteSpace($ver)) { return $null }
-        return $ver.Trim()
-    } catch { return $null }
-}
+#endregion Sudo
+
+#region Chocolatey
 
 function Install-Chocolatey {
-@"
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-"@ | Out-Null
-
-    Write-Warn "Chocolatey não encontrado. Iniciando instalação..."
-
-    $oneLiner = @'
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-'@
-
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName  = "powershell.exe"
-    $psi.Verb      = "runas"
-    $psi.Arguments = "-NoExit -NoProfile -ExecutionPolicy Bypass -Command ""$oneLiner; Read-Host 'Pressione Enter para sair do instalador...'"""
-    $psi.UseShellExecute = $true
-
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        Write-Ok "Chocolatey já está instalado."
+        return
+    }
+    Write-Info "Instalando Chocolatey..."
     try {
-        $p = [System.Diagnostics.Process]::Start($psi)
-        $p.WaitForExit()
-        if ($p.ExitCode -ne 0) { throw "Instalador do Chocolatey retornou código $($p.ExitCode)." }
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        Write-Ok "Chocolatey instalado."
     } catch {
-        Write-Err "Falha ao instalar o Chocolatey: $($_.Exception.Message)"
-        throw
+        Write-Err "Falha na instalação do Chocolatey: $($_.Exception.Message)"
     }
+}
 
+#endregion Chocolatey
+
+#region Instalação de Aplicações + Ensure-PyWin32
+
+$Global:InstallSuccess = New-Object System.Collections.Generic.List[string]
+$Global:InstallFail    = New-Object System.Collections.Generic.List[string]
+
+function Install-OnePackage {
+    param([Parameter(Mandatory=$true)][string]$Name)
+    Write-Info "Instalando $Name..."
     try {
-        $machinePath = [Microsoft.Win32.Registry]::GetValue(
-            'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment','Path',$null)
-        $userPath = [Microsoft.Win32.Registry]::GetValue(
-            'HKEY_CURRENT_USER\Environment','Path',$null)
-        [System.Environment]::SetEnvironmentVariable('Path', @($machinePath,$userPath) -join ';','Process')
-    } catch { }
-
-    Start-Sleep -Seconds 2
-
-    $ver = Get-ChocolateyVersion
-    if (-not $ver) {
-        $fallback = 'C:\ProgramData\chocolatey\bin\choco.exe'
-        if (Test-Path $fallback) { $ver = & $fallback --version 2>$null }
+        choco install $Name -y --no-progress --limit-output | Out-Null
+        if ($LASTEXITCODE -eq 0) { $Global:InstallSuccess.Add($Name); Write-Ok "$Name instalado." }
+        else { $Global:InstallFail.Add($Name); Write-Warn "$Name falhou com código $LASTEXITCODE." }
+    } catch {
+        $Global:InstallFail.Add($Name)
+        Write-Warn "Erro instalando $($Name): $($_.Exception.Message)"
     }
-
-    if ($ver) { Write-Ok "Chocolatey instalado com sucesso. Versão: $ver" }
-    else      { Write-Err "Não foi possível confirmar a instalação do Chocolatey."; throw "Chocolatey não detectado após instalação." }
 }
 
-function Ensure-Chocolatey {
-    if (Test-ChocolateyInstalled) {
-        $ver = Get-ChocolateyVersion
-        if ($ver) { Write-Ok "Chocolatey já instalado. Versão: $ver" } else { Write-Ok "Chocolatey já instalado." }
-        return
-    }
-    Install-Chocolatey
-}
-#endregion
-
-#region ===== Instalação silenciosa de pacotes (com coleta de falhas) =====
-$script:Failures = New-Object System.Collections.Generic.List[object]
-
-function Get-ChocoInstalledVersion {
-    param([Parameter(Mandatory)][string]$Name)
-    $out = & choco list --local-only --exact --limit-output $Name 2>$null
-    if ([string]::IsNullOrWhiteSpace($out)) { return $null }
-    $parts = $out.Trim() -split '\|'
-    if ($parts.Length -ge 2) { return $parts[1].Trim() } else { return $null }
-}
-
-function Invoke-ProcessSilent {
-    param(
-        [Parameter(Mandatory)][string]$FilePath,
-        [Parameter(Mandatory)][string[]]$ArgumentList
-    )
-    $tempOut = [System.IO.Path]::GetTempFileName()
-    $tempErr = [System.IO.Path]::GetTempFileName()
+function Ensure-PyWin32 {
+    Write-Info "Garantindo PyWin32 instalado (via Python 'py')..."
     try {
-        $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList `
-            -RedirectStandardOutput $tempOut -RedirectStandardError $tempErr `
-            -NoNewWindow -Wait -PassThru
-        $stdout = (Get-Content $tempOut -Raw -ErrorAction SilentlyContinue)
-        $stderr = (Get-Content $tempErr -Raw -ErrorAction SilentlyContinue)
-        [pscustomobject]@{
-            ExitCode = $p.ExitCode
-            StdOut   = $stdout
-            StdErr   = $stderr
-        }
-    } finally {
-        Remove-Item $tempOut,$tempErr -ErrorAction SilentlyContinue
+        & py -m pip install --upgrade pip
+        & py -m pip install pywin32
+        Write-Ok "PyWin32 ok."
+    } catch {
+        Write-Warn "Falha no Ensure-PyWin32: $($_.Exception.Message)"
     }
 }
 
-function Add-Failure {
-    param([string]$Name,[string]$Message,[int]$ExitCode)
-    $script:Failures.Add([pscustomobject]@{
-        Package  = $Name
-        ExitCode = $ExitCode
-        Reason   = $Message
-    })
-}
-
-function Install-ChocoPackage {
-    param([Parameter(Mandatory)][string]$Name)
-
-    $installedVer = Get-ChocoInstalledVersion -Name $Name
-    if ($installedVer) {
-        Write-Ok "Já instalado: $Name v$installedVer"
-        return
+function Install-ChocoPackageBatch {
+    if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+        Write-Warn "Chocolatey não encontrado. Instalando primeiro..."
+        Install-Chocolatey
     }
 
-    Write-Info "Instalando ${Name}..."
-
-    $res = Invoke-ProcessSilent -FilePath 'choco' -ArgumentList @('install', $Name, '-y', '--no-progress', '--limit-output')
-
-    if ($res.ExitCode -ne 0) {
-        $msg = if (-not [string]::IsNullOrWhiteSpace($res.StdErr)) { $res.StdErr } elseif (-not [string]::IsNullOrWhiteSpace($res.StdOut)) { $res.StdOut } else { "(sem saída de erro; código $($res.ExitCode))" }
-        Write-Err "Erro ao instalar ${Name}:"
-        Write-Host $msg
-        Add-Failure -Name $Name -Message $msg -ExitCode $res.ExitCode
-        return
+    foreach ($pkg in $Global:ChocoPackages) {
+        Install-OnePackage -Name $pkg
     }
 
-    $newVer = Get-ChocoInstalledVersion -Name $Name
-    if ($newVer) { Write-Ok "Instalado: $Name v$newVer" }
-    else {
-        Write-Err "Instalação de ${Name} concluída, mas não foi possível confirmar a versão."
-        Add-Failure -Name $Name -Message "Instalado sem confirmação de versão." -ExitCode 0
-    }
-}
-
-function Install-ChocoPackageList {
-    param([string[]]$Names)
-
-    $cInstalled = 0; $cSkipped = 0
-
-    foreach ($pkg in $Names) {
-        try {
-            $v = Get-ChocoInstalledVersion -Name $pkg
-            if ($v) {
-                Write-Ok "Já instalado: $pkg v$v"
-                $cSkipped++
-                continue
-            }
-
-            Write-Info "Instalando ${pkg}..."
-
-            $res = Invoke-ProcessSilent -FilePath 'choco' -ArgumentList @('install', $pkg, '-y', '--no-progress', '--limit-output')
-            if ($res.ExitCode -ne 0) {
-                $msg = if (-not [string]::IsNullOrWhiteSpace($res.StdErr)) { $res.StdErr } elseif (-not [string]::IsNullOrWhiteSpace($res.StdOut)) { $res.StdOut } else { "(sem saída de erro; código $($res.ExitCode))" }
-                Write-Err "Erro ao instalar ${pkg}:"
-                Write-Host $msg
-                Add-Failure -Name $pkg -Message $msg -ExitCode $res.ExitCode
-                continue
-            }
-
-            $v2 = Get-ChocoInstalledVersion -Name $pkg
-            if ($v2) {
-                Write-Ok "Instalado: $pkg v$v2"
-                $cInstalled++
-            } else {
-                Write-Err "Instalação de ${pkg} concluída, mas versão não confirmada."
-                Add-Failure -Name $pkg -Message "Instalado sem confirmação de versão." -ExitCode 0
-            }
-        } catch {
-            Write-Err "Exceção ao processar ${pkg}: $($_.Exception.Message)"
-            Add-Failure -Name $pkg -Message $_.Exception.Message -ExitCode -1
-        }
-    }
-
-    Write-Host ""
-    Write-Host "==== Resumo ===="
-    Write-Host ("Instalados:    {0}" -f $cInstalled)
-    Write-Host ("Já instalados: {0}" -f $cSkipped)
-    Write-Host ("Falhas:        {0}" -f $($script:Failures.Count))
-
-    if ($script:Failures.Count -gt 0) {
-        Write-Host ""
-        Write-Host "==== Detalhes das falhas ===="
-        foreach ($f in $script:Failures) {
-            Write-Host ("- {0}  (ExitCode: {1})" -f $f.Package, $f.ExitCode)
-            Write-Host ($f.Reason.Trim())
-            Write-Host ""
-        }
-    }
-}
-#endregion
-
-#region ===== MAIN =====
-function Invoke-Main {
-    Set-ConsoleUtf8
-    Ensure-Administrator
-    Ensure-Chocolatey
-    Install-ChocoPackageList -Names $Packages
     Ensure-PyWin32
+
+    Write-Host ""; Write-Host "================= SUMÁRIO DA INSTALAÇÃO =================" -ForegroundColor White
+    Write-Host "SUCESSOS:" -ForegroundColor Green
+    if ($Global:InstallSuccess.Count -gt 0) { $Global:InstallSuccess | ForEach-Object { Write-Host "  - $_" -ForegroundColor Green } }
+    else { Write-Host "  (nenhum)" -ForegroundColor DarkGray }
+
+    Write-Host "FALHAS:" -ForegroundColor Red
+    if ($Global:InstallFail.Count -gt 0)   { $Global:InstallFail    | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
+    else { Write-Host "  (nenhuma)" -ForegroundColor DarkGray }
+
+    Write-Host "==========================================================" -ForegroundColor White
 }
 
-try {
-    Invoke-Main
-} finally {
-    Pause-Enter   # <-- garante pausa SEMPRE (sucesso ou erro)
+#endregion Instalação de Aplicações
+
+#region Fluxos das Opções
+
+function Option1-RestorePoint { CreateSystemRestorePoint }
+function Option2-Windebloat  { Run-Windebloat }
+function Option3-EnableSudo  { Enable-WindowsSudo }
+function Option4-InstallChoco{ Install-Chocolatey }
+function Option5-InstallApps { Install-ChocoPackageBatch }
+
+#endregion Fluxos das Opções
+
+function Option1-CreateRestorePoint { CreateSystemRestorePoint }
+function Option2-Windebloat        { Run-Windebloat }
+function Option3-EnableSudo        { Enable-WindowsSudo }
+function Option4-InstallChoco      { Install-Chocolatey }
+function Option5-InstallApps       { Install-ChocoPackageBatch }
+
+#endregion Fluxos das Opções
+
+#region Menu
+
+function Show-Menu {
+    Clear-Host
+    Write-Host "================ Pós-Formatação (PowerShell) ================" -ForegroundColor White
+    Write-Host "1) Create Restore Point"
+    Write-Host "2) Windows 11 Debloat By Raphire"
+    Write-Host "3) Enable Sudo"
+    Write-Host "4) Install Chocolatey"
+    Write-Host "5) Install App List with Chocolatey + Ensure-PyWin32"
+    Write-Host "0) Exit"
+    Write-Host "=============================================================" -ForegroundColor White
 }
-#endregion
+
+function Run-Menu {
+    Ensure-Admin
+    do {
+        Show-Menu
+        $choice = Read-Host "Choose an option"
+        switch ($choice) {
+            '1' { Option1-RestorePoint; Pause-Enter }
+            '2' { Option2-Windebloat;   Pause-Enter }
+            '3' { Option3-EnableSudo;   Pause-Enter }
+            '4' { Option4-InstallChoco; Pause-Enter }
+            '5' { Option5-InstallApps;  Pause-Enter }
+            '0' { Write-Info "Saindo..." }
+            Default { Write-Warn "Invalid option"; Pause-Enter }
+        }
+    } while ($choice -ne '0')
+}
+
+#endregion Menu
+
+# =========== PONTO DE ENTRADA ===========
+Run-Menu
