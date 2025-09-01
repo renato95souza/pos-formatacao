@@ -1,0 +1,7 @@
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\renato\Desktop\Formatação\post-install.ps1"
+
+adicionar: Checkpoint-Computer -Description "MeuPontoDeRestauracao" -RestorePointType "MODIFY_SETTINGS"
+
+sudo config --enable normal
+
+& ([scriptblock]::Create((irm "https://debloat.raphi.re/"))) -RunDefaults
