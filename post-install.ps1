@@ -240,6 +240,81 @@ function Install-ChocoPackageBatch {
 
 #endregion Instalação de Aplicações
 
+function Set-ThinkPadKeyboardLayout {
+    [CmdletBinding()]
+    param()
+
+    if (-not (Test-IsAdmin)) { Ensure-Admin }
+
+    $regPath   = 'HKLM:\SYSTEM\CurrentControlSet\Control\Keyboard Layout'
+    $valueName = 'Scancode Map'
+    # alvo: 00 00 00 00 00 00 00 00 02 00 00 00 73 00 1D E0 00 00 00 00
+    $target = [byte[]](0,0,0,0,0,0,0,0,2,0,0,0,0x73,0x00,0x1D,0xE0,0,0,0,0)
+
+    try {
+        # Lê valor atual de forma robusta
+        $current = $null
+        try {
+            $current = Get-ItemPropertyValue -Path $regPath -Name $valueName -ErrorAction Stop
+        } catch {
+            # sem valor ainda
+        }
+
+        $toHex = { param($bytes) if ($bytes -is [byte[]]) { [System.BitConverter]::ToString($bytes) } else { '<null>' } }
+        Write-Info ("Valor atual em hexa: {0}" -f (& $toHex $current))
+
+        $alreadySet = ($current -is [byte[]]) -and ([System.Linq.Enumerable]::SequenceEqual($current, $target))
+
+        if ($alreadySet) {
+            Write-Ok "O Scancode Map já está com o valor esperado. Nenhuma alteração necessária."
+            return
+        }
+
+        # Backup
+        Write-Info "Criando backup do layout atual do teclado..."
+        $backupDir = Join-Path $env:ProgramData 'PostInstall'
+        if (-not (Test-Path $backupDir)) { New-Item -Path $backupDir -ItemType Directory | Out-Null }
+        $backupFile = Join-Path $backupDir ("keyboard-layout_backup_{0}.reg" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+        & reg.exe export 'HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout' $backupFile /y | Out-Null
+        Write-Ok "Backup salvo em: $backupFile"
+
+        # Aplica novo valor
+        Write-Info "Aplicando Scancode Map para teclado Lenovo ThinkPad..."
+        if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+
+        if ($null -ne $current) {
+            # já existe a propriedade -> atualiza
+            Set-ItemProperty -Path $regPath -Name $valueName -Value $target
+        } else {
+            # cria REG_BINARY
+            New-ItemProperty -Path $regPath -Name $valueName -PropertyType Binary -Value $target -Force | Out-Null
+        }
+
+        # Verificação pós-aplicação
+        $applied = $null
+        try { $applied = Get-ItemPropertyValue -Path $regPath -Name $valueName -ErrorAction Stop } catch {}
+        $ok = ($applied -is [byte[]]) -and [System.Linq.Enumerable]::SequenceEqual($applied, $target)
+
+        if ($ok) {
+            Write-Ok "Scancode Map configurado com sucesso."
+            Write-Warn "É necessário reiniciar o Windows para que a alteração tenha efeito."
+            $resp = Read-Host "Deseja reiniciar agora? (S/N)"
+            if ($resp -match '^(s|y|S|Y)$') {
+                Write-Info "Reiniciando em 5 segundos..."
+                Start-Process -FilePath 'shutdown.exe' -ArgumentList '/r','/t','5','/c','Aplicando Scancode Map para teclado Lenovo ThinkPad' -Verb RunAs
+            } else {
+                Write-Info "Reinicie depois para aplicar as alterações."
+            }
+        } else {
+            Write-Warn "Não foi possível confirmar a configuração do Scancode Map."
+        }
+    } catch {
+        Write-Warn "Falha ao configurar Scancode Map: $($_.Exception.Message)"
+    } finally {
+        Pause-Enter
+    }
+}
+
 #region Fluxos das Opções
 
 function Option1-RestorePoint { CreateSystemRestorePoint }
@@ -247,14 +322,7 @@ function Option2-Windebloat  { Run-Windebloat }
 function Option3-EnableSudo  { Enable-WindowsSudo }
 function Option4-InstallChoco{ Install-Chocolatey }
 function Option5-InstallApps { Install-ChocoPackageBatch }
-
-#endregion Fluxos das Opções
-
-function Option1-CreateRestorePoint { CreateSystemRestorePoint }
-function Option2-Windebloat        { Run-Windebloat }
-function Option3-EnableSudo        { Enable-WindowsSudo }
-function Option4-InstallChoco      { Install-Chocolatey }
-function Option5-InstallApps       { Install-ChocoPackageBatch }
+function Option6-ThinkPadLayout { Set-ThinkPadKeyboardLayout }
 
 #endregion Fluxos das Opções
 
@@ -268,6 +336,7 @@ function Show-Menu {
     Write-Host "3) Enable Sudo"
     Write-Host "4) Install Chocolatey"
     Write-Host "5) Install App List with Chocolatey + Ensure-PyWin32"
+	Write-Host "6) Change Lenovo Thinkpad keyboard Layout"
     Write-Host "0) Exit"
     Write-Host "=============================================================" -ForegroundColor White
 }
@@ -278,14 +347,15 @@ function Run-Menu {
         Show-Menu
         $choice = Read-Host "Choose an option"
         switch ($choice) {
-            '1' { Option1-RestorePoint; Pause-Enter }
-            '2' { Option2-Windebloat;   Pause-Enter }
-            '3' { Option3-EnableSudo;   Pause-Enter }
-            '4' { Option4-InstallChoco; Pause-Enter }
-            '5' { Option5-InstallApps;  Pause-Enter }
-            '0' { Write-Info "Saindo..." }
-            Default { Write-Warn "Invalid option"; Pause-Enter }
-        }
+			'1' { CreateSystemRestorePoint; Pause-Enter }
+			'2' { Run-Windebloat;           Pause-Enter }
+			'3' { Enable-WindowsSudo;       Pause-Enter }
+			'4' { Install-Chocolatey;       Pause-Enter }
+			'5' { Install-ChocoPackageBatch; Pause-Enter }
+			'6' { Set-ThinkPadKeyboardLayout }  
+			'0' { Write-Info "Saindo..."; break }
+			default { Write-Warn "Opção inválida."; Pause-Enter }
+}
     } while ($choice -ne '0')
 }
 
