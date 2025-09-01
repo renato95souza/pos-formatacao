@@ -123,7 +123,7 @@ Defina a licença do projeto (ex.: MIT). Crie um arquivo `LICENSE` na raiz do re
 
 ## 🙏 Agradecimentos
 
-* [Win11Debloat por @raphi364](https://debloat.raphi.re/)
+* [Win11Debloat por @raphi364](https://github.com/Raphire/Win11Debloat)
 * Comunidade Chocolatey
 
 ---
