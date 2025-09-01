@@ -14,7 +14,7 @@ Um utilitário **pós‑formatação** para Windows 11/10, escrito em PowerShell
 
 ## 🚀 Começando
 
-```Command Prompt or PowerShell
+```Powershell
 powershell.exe Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((irm ''https://raw.githubusercontent.com/renato95souza/pos-formatacao/main/post-install.ps1'')))"'
 ```
 ---
