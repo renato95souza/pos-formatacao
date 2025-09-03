@@ -24,7 +24,7 @@ $Global:ChocoPackages = @(
     'nano','advanced-ip-scanner','putty','python','yt-dlp','ffmpeg','flameshot',
     'adobereader','firefox','python3','teamviewer','notepadplusplus.install',
     'bitwarden','mobaxterm','vlc','winrar','wget','spotify','powertoys',
-    'forticlientvpn','rufus','virtualbox'
+    'forticlientvpn','rufus','virtualbox','keeper'
 )
 # ====================================================
 
