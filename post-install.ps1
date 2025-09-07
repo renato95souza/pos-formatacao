@@ -294,7 +294,7 @@ function Install-WingetPackageBatch {
         Pause-Enter
         return
     }
-    #Write-Ok "Winget detectado (versão: $v)."
+  
     Write-Ok "winget detectado (versão: $v).`n"
 
 
@@ -462,7 +462,7 @@ function Show-Menu {
     Write-Host "2) Create Restore Point"
     Write-Host "3) Windows 11 Debloat By Raphire"
 	Write-Host "4) Install App list with Winget + Ensure-PyWin32"
-    Write-Host "5) Install App List with Chocolatey (if not available on winget)"
+    Write-Host "5) Install App list with Chocolatey (if not available on winget)"
 	Write-Host "6) Change Lenovo Thinkpad keyboard Layout"
     Write-Host "0) Exit"
     Write-Host "=============================================================" -ForegroundColor White
