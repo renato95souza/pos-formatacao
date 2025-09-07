@@ -4,27 +4,38 @@
     Autor:     Renato de Souza de Carvalho ;)
     Objetivo:  Utilitário pós-formatação com menu e funções
     Idioma:    pt-BR
-
-    Opções do menu:
-      1) Create Restore Point
-      2) Windows Debloat
-      3) Enable Sudo
-      4) Install Chocolatey
-      5) Install Apps with Chocolatey + Ensure-PyWin32
-
-    Observações:
-      - O script tenta se auto-elevar para Administrador.
-      - Exibe mensagens durante cada instalação.
-      - Ao final da Opção 5, roda Ensure-PyWin32 antes do sumário.
-      - Mantém um resumo de sucessos e falhas.
 !#>
 
-# ================= LISTA DE PACOTES =================
+# Lista de pacotes Winget
+$Global:WingetPackages = @(
+    'GNU.Nano',
+    'Famatech.AdvancedIPScanner',
+    'PuTTY.PuTTY',
+    'Python.Python.3.13',
+    'yt-dlp.yt-dlp',
+    'Gyan.FFmpeg',
+    'Flameshot.Flameshot',
+    'Adobe.Acrobat.Reader.64-bit',
+    'Mozilla.Firefox.pt-BR',
+    'TeamViewer.TeamViewer',
+    'Notepad++.Notepad++',
+    'Bitwarden.Bitwarden',
+    'Mobatek.MobaXterm',
+    'VideoLAN.VLC',
+    'RARLab.WinRAR',
+    'GNU.Wget2',
+    'Spotify.Spotify',
+    'Microsoft.PowerToys',
+    'Fortinet.FortiClientVPN',
+    'Rufus.Rufus',
+    'Oracle.VirtualBox',
+    'KeeperSecurity.KeeperDesktop',
+    'RevoUninstaller.RevoUninstaller'
+)
+
+# Lista de pacotes para instalar via chocolatey, caso não esteja disponível via winget
 $Global:ChocoPackages = @(
-    'nano','advanced-ip-scanner','putty','python','yt-dlp','ffmpeg','flameshot',
-    'adobereader','firefox','python3','teamviewer','notepadplusplus.install',
-    'bitwarden','mobaxterm','vlc','winrar','wget','spotify','powertoys',
-    'forticlientvpn','rufus','virtualbox','keeper', 'revo-uninstaller', 'partition-manager'
+    'partition-manager'
 )
 # ====================================================
 
@@ -183,10 +194,6 @@ function Install-Chocolatey {
     }
 }
 
-#endregion Chocolatey
-
-#region Instalação de Aplicações + Ensure-PyWin32
-
 $Global:InstallSuccess = New-Object System.Collections.Generic.List[string]
 $Global:InstallFail    = New-Object System.Collections.Generic.List[string]
 
@@ -203,17 +210,6 @@ function Install-OnePackage {
     }
 }
 
-function Ensure-PyWin32 {
-    Write-Info "Garantindo PyWin32 instalado (via Python 'py')..."
-    try {
-        & py -m pip install --upgrade pip
-        & py -m pip install pywin32
-        Write-Ok "PyWin32 ok."
-    } catch {
-        Write-Warn "Falha no Ensure-PyWin32: $($_.Exception.Message)"
-    }
-}
-
 function Install-ChocoPackageBatch {
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
         Write-Warn "Chocolatey não encontrado. Instalando primeiro..."
@@ -223,8 +219,6 @@ function Install-ChocoPackageBatch {
     foreach ($pkg in $Global:ChocoPackages) {
         Install-OnePackage -Name $pkg
     }
-
-    Ensure-PyWin32
 
     Write-Host ""; Write-Host "================= SUMÁRIO DA INSTALAÇÃO =================" -ForegroundColor White
     Write-Host "SUCESSOS:" -ForegroundColor Green
@@ -239,6 +233,126 @@ function Install-ChocoPackageBatch {
 }
 
 #endregion Instalação de Aplicações
+
+#region Winget - Instalação em lote
+
+function Test-WingetAvailable {
+    $cmd = Get-Command winget -ErrorAction SilentlyContinue
+    return [bool]$cmd
+}
+
+function Get-WingetVersion {
+    if (-not (Test-WingetAvailable)) { return $null }
+    try {
+        $v = winget --version 2>$null
+        return $v
+    } catch { return $null }
+}
+
+function Install-OneWinget {
+    param(
+        [Parameter(Mandatory)][string]$Id,
+        [int]$MaxRetries = 1
+    )
+
+    if (-not (Test-WingetAvailable)) {
+        Write-Err "winget não está disponível neste sistema. Instale a Microsoft Store App Installer."
+        return $false
+    }
+
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        Write-Info "Instalando (winget): $Id (tentativa $attempt)..."
+
+        # Observação: não usamos --scope para evitar falhas em pacotes que não suportam.
+        # --disable-interactivity evita prompts; --silent quando suportado pelos instaladores
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "winget"
+        $psi.Arguments = @(
+            "install",
+            "-e", "--id", $Id,
+            "--source", "winget",
+            "--accept-source-agreements",
+            "--accept-package-agreements",
+            "--disable-interactivity",
+            "--silent"
+        ) -join ' '
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.UseShellExecute = $false
+
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $stdout = $p.StandardOutput.ReadToEnd()
+        $stderr = $p.StandardError.ReadToEnd()
+        $p.WaitForExit()
+        $code = $p.ExitCode
+
+        # Sucesso típico é 0. Em muitos casos, "já instalado/sem atualização" também sai com 0.
+        if ($code -eq 0) {
+            Write-Ok "Pacote '$Id' instalado (ou já presente)."
+            return $true
+        }
+
+        Write-Warn "Falha ao instalar '$Id' (código $code)."
+        if ($stdout) { Write-Warn "stdout: $($stdout -replace '\s+$','')" }
+        if ($stderr) { Write-Warn "stderr: $($stderr -replace '\s+$','')" }
+
+        if ($attempt -ge (1 + $MaxRetries)) {
+            Write-Err "Desistindo do pacote '$Id' após $attempt tentativa(s). Continuando com os próximos…"
+            return $false
+        }
+
+        Start-Sleep -Seconds 5
+        Write-Info "Re-tentando '$Id'…"
+    }
+}
+
+function Install-WingetPackageBatch {
+    Write-Info "Verificando winget…"
+    $v = Get-WingetVersion
+    if (-not $v) {
+        Write-Err "winget não está disponível. Instale 'App Installer' pela Microsoft Store e execute novamente."
+        Pause-Enter
+        return
+    }
+    Write-Ok "winget detectado (versão: $v)."
+
+    $failures = @()
+    foreach ($pkg in $Global:WingetPackages) {
+        $ok = $false
+        try {
+            $ok = Install-OneWinget -Id $pkg -MaxRetries 1
+        } catch {
+            Write-Err "Exceção ao instalar '$pkg': $($_.Exception.Message)"
+        }
+        if (-not $ok) { $failures += $pkg }
+    }
+
+    # Opcional: se Python 3.13 foi instalado, garantir pip/pywin32
+    if ($Global:WingetPackages -contains 'Python.Python.3.13') {
+        try {
+            if (Get-Command py -ErrorAction SilentlyContinue) {
+                Write-Info "Ajustando Python: atualizando pip e instalando pywin32…"
+                py -m pip install -U pip
+                py -m pip install -U pywin32
+                Write-Ok "pip/pywin32 ajustados."
+            } else {
+                Write-Warn "Comando 'py' não encontrado após instalação. Pulei ajuste de pip/pywin32."
+            }
+        } catch {
+            Write-Err "Falha ao ajustar pip/pywin32: $($_.Exception.Message)"
+        }
+    }
+
+    if ($failures.Count -gt 0) {
+        Write-Warn "Alguns pacotes falharam: $($failures -join ', ')"
+    } else {
+        Write-Ok "Todos os pacotes winget foram instalados com sucesso."
+    }
+
+    Pause-Enter
+}
 
 function Set-ThinkPadKeyboardLayout {
     [CmdletBinding()]
@@ -317,12 +431,12 @@ function Set-ThinkPadKeyboardLayout {
 
 #region Fluxos das Opções
 
-function Option1-RestorePoint { CreateSystemRestorePoint }
-function Option2-Windebloat  { Run-Windebloat }
-function Option3-EnableSudo  { Enable-WindowsSudo }
-function Option4-InstallChoco{ Install-Chocolatey }
-function Option5-InstallApps { Install-ChocoPackageBatch }
-function Option6-ThinkPadLayout { Set-ThinkPadKeyboardLayout }
+#function Option1-RestorePoint { CreateSystemRestorePoint }
+#function Option2-Windebloat  { Run-Windebloat }
+#function Option3-EnableSudo  { Enable-WindowsSudo }
+#function Option4-InstallChoco{ Install-Chocolatey }
+#function Option5-InstallApps { Install-ChocoPackageBatch }
+#function Option6-ThinkPadLayout { Set-ThinkPadKeyboardLayout }
 
 #endregion Fluxos das Opções
 
@@ -334,9 +448,10 @@ function Show-Menu {
     Write-Host "1) Create Restore Point"
     Write-Host "2) Windows 11 Debloat By Raphire"
     Write-Host "3) Enable Sudo"
-    Write-Host "4) Install Chocolatey"
-    Write-Host "5) Install App List with Chocolatey + Ensure-PyWin32"
-	Write-Host "6) Change Lenovo Thinkpad keyboard Layout"
+	Write-Host "4) Install App list with Winget"
+    Write-Host "5) Install Chocolatey + Ensure-PyWin32"
+    Write-Host "6) Install App List with Chocolatey"
+	Write-Host "7) Change Lenovo Thinkpad keyboard Layout"
     Write-Host "0) Exit"
     Write-Host "=============================================================" -ForegroundColor White
 }
@@ -350,9 +465,10 @@ function Run-Menu {
 			'1' { CreateSystemRestorePoint; Pause-Enter }
 			'2' { Run-Windebloat;           Pause-Enter }
 			'3' { Enable-WindowsSudo;       Pause-Enter }
-			'4' { Install-Chocolatey;       Pause-Enter }
-			'5' { Install-ChocoPackageBatch; Pause-Enter }
-			'6' { Set-ThinkPadKeyboardLayout }  
+            '4' { Install-WingetPackageBatch }
+			'5' { Install-Chocolatey;       Pause-Enter }
+			'6' { Install-ChocoPackageBatch; Pause-Enter }
+			'7' { Set-ThinkPadKeyboardLayout }  
 			'0' { Write-Info "Saindo..."; break }
 			default { Write-Warn "Opção inválida."; Pause-Enter }
 }
