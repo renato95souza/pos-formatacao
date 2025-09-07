@@ -37,12 +37,9 @@ $Global:WingetPackages = @(
 $Global:ChocoPackages = @(
     'partition-manager'
 )
-# ====================================================
-
-#region Utilidades básicas
 
 function Write-Info($msg)  { Write-Host "[INFO]  $msg" -ForegroundColor Cyan }
-function Write-Ok($msg)    { Write-Host "[OK]    $msg" -ForegroundColor Green }
+function Write-Ok($msg)    { Write-Host "[OK]    $msg`n" -ForegroundColor Green }
 function Write-Warn($msg)  { Write-Host "[WARN]  $msg" -ForegroundColor Yellow }
 function Write-Err($msg)   { Write-Host "[ERRO]  $msg" -ForegroundColor Red }
 
@@ -72,10 +69,6 @@ function Ensure-Admin {
         exit
     }
 }
-
-#endregion Utilidades básicas
-
-#region Restauração do Sistema
 
 function CreateSystemRestorePoint {
     Write-Output "> Attempting to create a system restore point..."
@@ -146,10 +139,6 @@ function CreateSystemRestorePoint {
     Write-Output ""
 }
 
-#endregion Restauração do Sistema
-
-#region Windebloat
-
 function Run-Windebloat {
     Write-Info "Executando Windebloat com parâmetros padrão..."
     try {
@@ -160,10 +149,6 @@ function Run-Windebloat {
     }
 }
 
-#endregion Windebloat
-
-#region Sudo no Windows 11
-
 function Enable-WindowsSudo {
     Write-Info "Habilitando 'sudo' no Windows 11 (modo normal)..."
     try {
@@ -173,10 +158,6 @@ function Enable-WindowsSudo {
         Write-Warn "Falha ao habilitar 'sudo'. Verifique se o recurso está disponível nesta versão do Windows. Detalhe: $($_.Exception.Message)"
     }
 }
-
-#endregion Sudo
-
-#region Chocolatey
 
 function Install-Chocolatey {
     if (Get-Command choco -ErrorAction SilentlyContinue) {
@@ -199,7 +180,7 @@ $Global:InstallFail    = New-Object System.Collections.Generic.List[string]
 
 function Install-OnePackage {
     param([Parameter(Mandatory=$true)][string]$Name)
-    Write-Info "Instalando $Name..."
+    Write-Info "Tentando instalar o pacote $Name..."
     try {
         choco install $Name -y --no-progress --limit-output | Out-Null
         if ($LASTEXITCODE -eq 0) { $Global:InstallSuccess.Add($Name); Write-Ok "$Name instalado." }
@@ -214,6 +195,7 @@ function Install-ChocoPackageBatch {
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
         Write-Warn "Chocolatey não encontrado. Instalando primeiro..."
         Install-Chocolatey
+
     }
 
     foreach ($pkg in $Global:ChocoPackages) {
@@ -232,22 +214,8 @@ function Install-ChocoPackageBatch {
     Write-Host "==========================================================" -ForegroundColor White
 }
 
-#endregion Instalação de Aplicações
-
-#region Winget - Instalação em lote
-
-function Test-WingetAvailable {
-    $cmd = Get-Command winget -ErrorAction SilentlyContinue
-    return [bool]$cmd
-}
-
-function Get-WingetVersion {
-    if (-not (Test-WingetAvailable)) { return $null }
-    try {
-        $v = winget --version 2>$null
-        return $v
-    } catch { return $null }
-}
+function Test-WingetAvailable { [bool](Get-Command winget -ErrorAction SilentlyContinue) }
+function Get-WingetVersion    { if (Test-WingetAvailable) { try { winget --version 2>$null } catch { $null } } }
 
 function Install-OneWinget {
     param(
@@ -255,32 +223,24 @@ function Install-OneWinget {
         [int]$MaxRetries = 1
     )
 
+    $start = Get-Date
     if (-not (Test-WingetAvailable)) {
-        Write-Err "winget não está disponível neste sistema. Instale a Microsoft Store App Installer."
-        return $false
+        return [pscustomobject]@{
+            Name=$Id; Status='Fail'; Code=$null; Note='winget ausente'; Duration=[timespan]::Zero
+        }
     }
 
     $attempt = 0
     while ($true) {
         $attempt++
-        Write-Info "Instalando (winget): $Id (tentativa $attempt)..."
 
-        # Observação: não usamos --scope para evitar falhas em pacotes que não suportam.
-        # --disable-interactivity evita prompts; --silent quando suportado pelos instaladores
+        Write-Info "Instalando o pacote $Id..."
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = "winget"
-        $psi.Arguments = @(
-            "install",
-            "-e", "--id", $Id,
-            "--source", "winget",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-            "--disable-interactivity",
-            "--silent"
-        ) -join ' '
+        $psi.Arguments = ("install -e --id {0} --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity --silent" -f $Id)
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError  = $true
-        $psi.UseShellExecute = $false
+        $psi.UseShellExecute        = $false
 
         $p = [System.Diagnostics.Process]::Start($psi)
         $stdout = $p.StandardOutput.ReadToEnd()
@@ -288,23 +248,41 @@ function Install-OneWinget {
         $p.WaitForExit()
         $code = $p.ExitCode
 
-        # Sucesso típico é 0. Em muitos casos, "já instalado/sem atualização" também sai com 0.
-        if ($code -eq 0) {
-            Write-Ok "Pacote '$Id' instalado (ou já presente)."
-            return $true
+        $duration = (Get-Date) - $start
+
+        switch ($code) {
+            0 {
+                return [pscustomobject]@{
+                    Name=$Id; Status='OK'; Code=0; Note='Already installed'; Duration=$duration
+                }
+            }
+            -1978335189 { # No applicable update found (já instalado / sem update)
+                return [pscustomobject]@{
+                    Name=$Id; Status='UpToDate'; Code=$code; Note='Already updated'; Duration=$duration
+                }
+            }
+            -1978335146 { # Installer cannot run elevated (ex.: Spotify)
+                return [pscustomobject]@{
+                    Name=$Id; Status='SkipAdmin'; Code=$code; Note='Does not support elevated execution'; Duration=$duration
+                }
+            }
+            default {
+                if ($attempt -le $MaxRetries) {
+                    Start-Sleep -Seconds 3
+                    continue
+                }
+
+                # Pega apenas a 1ª linha relevante do erro para evitar poluição
+                $firstErr = ($stderr + "`n" + $stdout) -split "`r?`n" |
+                            Where-Object { $_ -and $_.Trim().Length -gt 0 } |
+                            Select-Object -First 1
+                if (-not $firstErr) { $firstErr = 'Unknown error' }
+
+                return [pscustomobject]@{
+                    Name=$Id; Status='Fail'; Code=$code; Note=$firstErr; Duration=$duration
+                }
+            }
         }
-
-        Write-Warn "Falha ao instalar '$Id' (código $code)."
-        if ($stdout) { Write-Warn "stdout: $($stdout -replace '\s+$','')" }
-        if ($stderr) { Write-Warn "stderr: $($stderr -replace '\s+$','')" }
-
-        if ($attempt -ge (1 + $MaxRetries)) {
-            Write-Err "Desistindo do pacote '$Id' após $attempt tentativa(s). Continuando com os próximos…"
-            return $false
-        }
-
-        Start-Sleep -Seconds 5
-        Write-Info "Re-tentando '$Id'…"
     }
 }
 
@@ -312,43 +290,91 @@ function Install-WingetPackageBatch {
     Write-Info "Verificando winget…"
     $v = Get-WingetVersion
     if (-not $v) {
-        Write-Err "winget não está disponível. Instale 'App Installer' pela Microsoft Store e execute novamente."
+        Write-Err "Winget não está disponível. Instale 'App Installer' e execute novamente."
         Pause-Enter
         return
     }
-    Write-Ok "winget detectado (versão: $v)."
+    #Write-Ok "Winget detectado (versão: $v)."
+    Write-Ok "winget detectado (versão: $v).`n"
 
-    $failures = @()
+
+    $results = New-Object System.Collections.Generic.List[object]
+    $t0 = Get-Date
+
     foreach ($pkg in $Global:WingetPackages) {
-        $ok = $false
+        #Write-Info "→ $pkg"
         try {
-            $ok = Install-OneWinget -Id $pkg -MaxRetries 1
+            $r = Install-OneWinget -Id $pkg -MaxRetries 1
         } catch {
-            Write-Err "Exceção ao instalar '$pkg': $($_.Exception.Message)"
-        }
-        if (-not $ok) { $failures += $pkg }
-    }
-
-    # Opcional: se Python 3.13 foi instalado, garantir pip/pywin32
-    if ($Global:WingetPackages -contains 'Python.Python.3.13') {
-        try {
-            if (Get-Command py -ErrorAction SilentlyContinue) {
-                Write-Info "Ajustando Python: atualizando pip e instalando pywin32…"
-                py -m pip install -U pip
-                py -m pip install -U pywin32
-                Write-Ok "pip/pywin32 ajustados."
-            } else {
-                Write-Warn "Comando 'py' não encontrado após instalação. Pulei ajuste de pip/pywin32."
+            $r = [pscustomobject]@{
+                Name=$pkg; Status='Fail'; Code=$null; Note=$_.Exception.Message; Duration=[timespan]::Zero
             }
-        } catch {
-            Write-Err "Falha ao ajustar pip/pywin32: $($_.Exception.Message)"
+        }
+
+        switch ($r.Status) {
+            'OK'        { Write-Ok   "Installed         $($r.Name)" }
+            'UpToDate'  { Write-Ok   "Updated $($r.Name)" }
+            'SkipAdmin' { Write-Warn "Ignorado    $($r.Name) — $($r.Note)" }
+            'Fail'      { Write-Err  "Failed       $($r.Name) (código $($r.Code)) — $($r.Note)" }
+            default     { Write-Err  "Failed       $($r.Name) — Status inesperado '$($r.Status)'" }
+        }
+
+        $results.Add($r) | Out-Null
+    }
+
+    # Pós-instalação Python (se presente na lista e OK/UpToDate)
+    if ($Global:WingetPackages -contains 'Python.Python.3.13') {
+        $pyOk = $results | Where-Object { $_.Name -eq 'Python.Python.3.13' -and $_.Status -in 'OK','UpToDate' }
+        if ($pyOk) {
+            try {
+                if (Get-Command py -ErrorAction SilentlyContinue) {
+                    Write-Info "Ajustando Python (pip/pywin32)…"
+                    py -m pip install -U pip    | Out-Null
+                    py -m pip install -U pywin32| Out-Null
+                    Write-Ok "pip/pywin32 OK."
+                } else {
+                    Write-Warn "Comando 'py' não encontrado; pulei ajuste de pip/pywin32."
+                }
+            } catch {
+                Write-Err "Falha ao ajustar pip/pywin32: $($_.Exception.Message)"
+            }
         }
     }
 
-    if ($failures.Count -gt 0) {
-        Write-Warn "Alguns pacotes falharam: $($failures -join ', ')"
-    } else {
-        Write-Ok "Todos os pacotes winget foram instalados com sucesso."
+    # ===== Resumo estilo “relatório” =====
+    $elapsed = (Get-Date) - $t0
+    $byStatus = $results | Group-Object Status | Sort-Object Name
+    $tot = $results.Count
+    $ok  = ($byStatus | Where-Object Name -eq 'OK').Count
+    $upd = ($byStatus | Where-Object Name -eq 'UpToDate').Count
+    $skp = ($byStatus | Where-Object Name -eq 'SkipAdmin').Count
+    $fal = ($byStatus | Where-Object Name -eq 'Fail').Count
+
+    Write-Info  "——— RESUMO ———"
+    Write-Ok    ("Totais: {0}  |  OK: {1}  |  Atualizado: {2}  |  Ignorado(Admin): {3}  |  Falha: {4}  |  Tempo: {5:mm\:ss}" -f $tot,$ok,$upd,$skp,$fal,$elapsed)
+    
+    # Tabela compacta
+    $table = $results |
+        Sort-Object Status, Name |
+        Select-Object @{n='Pacote';e={$_.Name}},
+                      @{n='Status';e={$_.Status}},
+                      @{n='Nota';e={$_.Note}},
+                      @{n='Duração';e={ '{0:mm\:ss}' -f $_.Duration }}
+
+    # Renderiza a tabela como string e imprime em bloco único
+    $tblStr = $table | Format-Table -AutoSize | Out-String
+    ($tblStr -split "`r?`n" | ForEach-Object {
+        if ($_ -match '\S') { Write-Info $_ }
+    }) | Out-Null
+
+    # Se houve falhas, destacar a lista curta de motivos
+    if ($fal -gt 0) {
+        $fails = $results | Where-Object Status -eq 'Fail' |
+                 Select-Object Name, Code, Note
+        Write-Err "Falhas detalhadas:"
+        $fails | ForEach-Object {
+            Write-Err (" • {0} (código {1}) — {2}" -f $_.Name, $_.Code, $_.Note)
+        }
     }
 
     Pause-Enter
@@ -429,29 +455,15 @@ function Set-ThinkPadKeyboardLayout {
     }
 }
 
-#region Fluxos das Opções
-
-#function Option1-RestorePoint { CreateSystemRestorePoint }
-#function Option2-Windebloat  { Run-Windebloat }
-#function Option3-EnableSudo  { Enable-WindowsSudo }
-#function Option4-InstallChoco{ Install-Chocolatey }
-#function Option5-InstallApps { Install-ChocoPackageBatch }
-#function Option6-ThinkPadLayout { Set-ThinkPadKeyboardLayout }
-
-#endregion Fluxos das Opções
-
-#region Menu
-
 function Show-Menu {
     Clear-Host
     Write-Host "================ Pós-Formatação (PowerShell) ================" -ForegroundColor White
-    Write-Host "1) Create Restore Point"
-    Write-Host "2) Windows 11 Debloat By Raphire"
-    Write-Host "3) Enable Sudo"
+    Write-Host "1) Enable Sudo"
+    Write-Host "2) Create Restore Point"
+    Write-Host "3) Windows 11 Debloat By Raphire"
 	Write-Host "4) Install App list with Winget + Ensure-PyWin32"
-    Write-Host "5) Install Chocolatey"
-    Write-Host "6) Install App List with Chocolatey"
-	Write-Host "7) Change Lenovo Thinkpad keyboard Layout"
+    Write-Host "5) Install App List with Chocolatey (if not available on winget)"
+	Write-Host "6) Change Lenovo Thinkpad keyboard Layout"
     Write-Host "0) Exit"
     Write-Host "=============================================================" -ForegroundColor White
 }
@@ -462,20 +474,16 @@ function Run-Menu {
         Show-Menu
         $choice = Read-Host "Choose an option"
         switch ($choice) {
-			'1' { CreateSystemRestorePoint; Pause-Enter }
-			'2' { Run-Windebloat;           Pause-Enter }
-			'3' { Enable-WindowsSudo;       Pause-Enter }
+            '1' { Enable-WindowsSudo;       Pause-Enter }
+			'2' { CreateSystemRestorePoint; Pause-Enter }
+			'3' { Run-Windebloat;           Pause-Enter }
             '4' { Install-WingetPackageBatch }
-			'5' { Install-Chocolatey;       Pause-Enter }
-			'6' { Install-ChocoPackageBatch; Pause-Enter }
-			'7' { Set-ThinkPadKeyboardLayout }  
-			'0' { Write-Info "Saindo..."; break }
-			default { Write-Warn "Opção inválida."; Pause-Enter }
+			'5' { Install-ChocoPackageBatch; Pause-Enter }
+			'6' { Set-ThinkPadKeyboardLayout }  
+			'0' { Write-Info "Exiting..."; break }
+			default { Write-Warn "Invalid option."; Pause-Enter }
 }
     } while ($choice -ne '0')
 }
 
-#endregion Menu
-
-# =========== PONTO DE ENTRADA ===========
 Run-Menu
