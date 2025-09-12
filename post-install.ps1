@@ -30,7 +30,8 @@ $Global:WingetPackages = @(
     'Rufus.Rufus',
     'Oracle.VirtualBox',
     'KeeperSecurity.KeeperDesktop',
-    'RevoUninstaller.RevoUninstaller'
+    'RevoUninstaller.RevoUninstaller',
+    'Cloudflare.Warp'
 )
 
 # Lista de pacotes para instalar via chocolatey, caso não esteja disponível via winget
@@ -190,30 +191,6 @@ function Install-OnePackage {
         Write-Warn "Erro instalando $($Name): $($_.Exception.Message)"
     }
 }
-
-function Install-ChocoPackageBatch {
-    if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-        Write-Warn "Chocolatey não encontrado. Instalando primeiro..."
-        Install-Chocolatey
-
-    }
-
-    foreach ($pkg in $Global:ChocoPackages) {
-        Install-OnePackage -Name $pkg
-    }
-
-    Write-Host ""; Write-Host "================= SUMÁRIO DA INSTALAÇÃO =================" -ForegroundColor White
-    Write-Host "SUCESSOS:" -ForegroundColor Green
-    if ($Global:InstallSuccess.Count -gt 0) { $Global:InstallSuccess | ForEach-Object { Write-Host "  - $_" -ForegroundColor Green } }
-    else { Write-Host "  (nenhum)" -ForegroundColor DarkGray }
-
-    Write-Host "FALHAS:" -ForegroundColor Red
-    if ($Global:InstallFail.Count -gt 0)   { $Global:InstallFail    | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
-    else { Write-Host "  (nenhuma)" -ForegroundColor DarkGray }
-
-    Write-Host "==========================================================" -ForegroundColor White
-}
-
 function Test-WingetAvailable { [bool](Get-Command winget -ErrorAction SilentlyContinue) }
 function Get-WingetVersion    { if (Test-WingetAvailable) { try { winget --version 2>$null } catch { $null } } }
 
@@ -462,8 +439,7 @@ function Show-Menu {
     Write-Host "2) Create Restore Point"
     Write-Host "3) Windows 11 Debloat By Raphire"
 	Write-Host "4) Install App list with Winget + Ensure-PyWin32"
-    Write-Host "5) Install App list with Chocolatey (if not available on winget)"
-	Write-Host "6) Change Lenovo Thinkpad keyboard Layout"
+	Write-Host "5) Change Lenovo Thinkpad keyboard Layout"
     Write-Host "0) Exit"
     Write-Host "=============================================================" -ForegroundColor White
 }
@@ -478,8 +454,7 @@ function Run-Menu {
 			'2' { CreateSystemRestorePoint; Pause-Enter }
 			'3' { Run-Windebloat;           Pause-Enter }
             '4' { Install-WingetPackageBatch }
-			'5' { Install-ChocoPackageBatch; Pause-Enter }
-			'6' { Set-ThinkPadKeyboardLayout }  
+			'5' { Set-ThinkPadKeyboardLayout }  
 			'0' { Write-Info "Exiting..."; break }
 			default { Write-Warn "Invalid option."; Pause-Enter }
 }
