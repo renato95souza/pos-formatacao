@@ -31,6 +31,8 @@ $Global:WingetPackages = @(
     'Oracle.VirtualBox',
     'KeeperSecurity.KeeperDesktop',
     'RevoUninstaller.RevoUninstaller',
+	'GitHub.GitHubDesktop',
+	'Google.Chrome',
     'Cloudflare.Warp'
 )
 
