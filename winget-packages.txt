@@ -24,7 +24,6 @@ VideoLAN.VLC
 RARLab.WinRAR
 GNU.Wget2
 Microsoft.PowerToys
-Fortinet.FortiClientVPN
 Rufus.Rufus
 Oracle.VirtualBox
 KeeperSecurity.KeeperDesktop
@@ -32,3 +31,4 @@ RevoUninstaller.RevoUninstaller
 GitHub.GitHubDesktop
 Google.Chrome
 Cloudflare.Warp
+Fortinet.FortiClientVPN
