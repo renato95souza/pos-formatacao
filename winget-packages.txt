@@ -1,4 +1,5 @@
 GNU.Nano
+Oracle.OCI-CLI
 DBeaver.DBeaver.Community
 Mirantis.Lens
 CrystalDewWorld.CrystalDiskInfo
