@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 <#!
     Script:    post-install.ps1
     Autor:     Renato de Souza de Carvalho ;)
@@ -6,48 +6,10 @@
     Idioma:    pt-BR
 !#>
 
-# Lista de pacotes Winget
-$Global:WingetPackages = @(
-    'GNU.Nano',
-	'DBeaver.DBeaver.Community',
-	'Mirantis.Lens',
-	'CrystalDewWorld.CrystalDiskInfo',
-	'WinSCP.WinSCP',
-	'Headlamp.Headlamp',
-	'TheDocumentFoundation.LibreOffice',
-	'OBSProject.OBSStudio',
-	'Postman.Postman',
-    'Famatech.AdvancedIPScanner',
-    'PuTTY.PuTTY',
-    'Python.Python.3.13',
-    'yt-dlp.yt-dlp',
-    'Gyan.FFmpeg',
-    'Flameshot.Flameshot',
-    'Adobe.Acrobat.Reader.64-bit',
-    'Mozilla.Firefox.pt-BR',
-    'TeamViewer.TeamViewer',
-    'Notepad++.Notepad++',
-    'Bitwarden.Bitwarden',
-    'Mobatek.MobaXterm',
-    'VideoLAN.VLC',
-    'RARLab.WinRAR',
-    'GNU.Wget2',
-    'Spotify.Spotify',
-    'Microsoft.PowerToys',
-    'Fortinet.FortiClientVPN',
-    'Rufus.Rufus',
-    'Oracle.VirtualBox',
-    'KeeperSecurity.KeeperDesktop',
-    'RevoUninstaller.RevoUninstaller',
-	'GitHub.GitHubDesktop',
-	'Google.Chrome',
-    'Cloudflare.Warp'
-)
-
-# Lista de pacotes para instalar via chocolatey, caso não esteja disponível via winget
-$Global:ChocoPackages = @(
-    'partition-manager'
-)
+# URL da lista de pacotes Winget no GitHub
+$Global:WingetListUrl = 'https://raw.githubusercontent.com/renato95souza/pos-formatacao/refs/heads/main/winget-packages.txt'
+$Global:WingetPackages = @() # Será preenchido na execução
+$Global:ChocoPackages = @() # Removendo a lista do Chocolatey, mantida como array vazio
 
 function Write-Info($msg)  { Write-Host "[INFO]  $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)    { Write-Host "[OK]    $msg`n" -ForegroundColor Green }
@@ -171,6 +133,7 @@ function Enable-WindowsSudo {
 }
 
 function Install-Chocolatey {
+    # Esta função foi mantida mas não é usada no menu
     if (Get-Command choco -ErrorAction SilentlyContinue) {
         Write-Ok "Chocolatey já está instalado."
         return
@@ -190,6 +153,7 @@ $Global:InstallSuccess = New-Object System.Collections.Generic.List[string]
 $Global:InstallFail    = New-Object System.Collections.Generic.List[string]
 
 function Install-OnePackage {
+    # Esta função era para Chocolatey e não é mais usada
     param([Parameter(Mandatory=$true)][string]$Name)
     Write-Info "Tentando instalar o pacote $Name..."
     try {
@@ -203,6 +167,32 @@ function Install-OnePackage {
 }
 function Test-WingetAvailable { [bool](Get-Command winget -ErrorAction SilentlyContinue) }
 function Get-WingetVersion    { if (Test-WingetAvailable) { try { winget --version 2>$null } catch { $null } } }
+
+function Get-WingetPackageList {
+    Write-Info "Baixando lista de pacotes Winget de: $($Global:WingetListUrl)"
+    try {
+        # Usa irm/Invoke-RestMethod para baixar o conteúdo
+        $listContent = Invoke-RestMethod -Uri $Global:WingetListUrl -UseBasicParsing -ErrorAction Stop
+        
+        # Filtra linhas vazias, comentários (#) e converte em array
+        $pkgs = $listContent -split "`n" |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and -not $_.Trim().StartsWith('#') } |
+                ForEach-Object { $_.Trim() }
+
+        if ($pkgs.Count -eq 0) {
+            Write-Err "Lista de pacotes vazia ou inválida baixada."
+            return $false
+        }
+        $Global:WingetPackages = $pkgs
+        Write-Ok "Lista de pacotes Winget carregada com sucesso: $($pkgs.Count) itens."
+        return $true
+    } catch {
+        Write-Err "Falha ao baixar/analisar a lista de pacotes Winget: $($_.Exception.Message)"
+        Write-Err "Certifique-se de que o arquivo winget-packages.txt existe em seu repositório."
+        return $false
+    }
+}
+
 
 function Install-OneWinget {
     param(
@@ -221,7 +211,7 @@ function Install-OneWinget {
     while ($true) {
         $attempt++
 
-        Write-Info "Instalando o pacote $Id..."
+        Write-Info "Instalando o pacote $Id (tentativa $attempt)..."
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = "winget"
         $psi.Arguments = ("install -e --id {0} --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity --silent" -f $Id)
@@ -240,12 +230,12 @@ function Install-OneWinget {
         switch ($code) {
             0 {
                 return [pscustomobject]@{
-                    Name=$Id; Status='OK'; Code=0; Note='Already installed'; Duration=$duration
+                    Name=$Id; Status='OK'; Code=0; Note='Install succeeded'; Duration=$duration
                 }
             }
             -1978335189 { # No applicable update found (já instalado / sem update)
                 return [pscustomobject]@{
-                    Name=$Id; Status='UpToDate'; Code=$code; Note='Already updated'; Duration=$duration
+                    Name=$Id; Status='UpToDate'; Code=$code; Note='Already installed/updated'; Duration=$duration
                 }
             }
             -1978335146 { # Installer cannot run elevated (ex.: Spotify)
@@ -254,7 +244,7 @@ function Install-OneWinget {
                 }
             }
             default {
-                if ($attempt -le $MaxRetries) {
+                if ($attempt -lt $MaxRetries) {
                     Start-Sleep -Seconds 3
                     continue
                 }
@@ -274,6 +264,12 @@ function Install-OneWinget {
 }
 
 function Install-WingetPackageBatch {
+    # 1. Carrega a lista de pacotes
+    if (-not (Get-WingetPackageList)) {
+        Pause-Enter
+        return
+    }
+
     Write-Info "Verificando winget…"
     $v = Get-WingetVersion
     if (-not $v) {
@@ -284,12 +280,11 @@ function Install-WingetPackageBatch {
   
     Write-Ok "winget detectado (versão: $v).`n"
 
-
     $results = New-Object System.Collections.Generic.List[object]
     $t0 = Get-Date
 
+    # 2. Executa a instalação para cada pacote carregado
     foreach ($pkg in $Global:WingetPackages) {
-        #Write-Info "→ $pkg"
         try {
             $r = Install-OneWinget -Id $pkg -MaxRetries 1
         } catch {
@@ -300,18 +295,21 @@ function Install-WingetPackageBatch {
 
         switch ($r.Status) {
             'OK'        { Write-Ok   "Installed         $($r.Name)" }
-            'UpToDate'  { Write-Ok   "Updated $($r.Name)" }
-            'SkipAdmin' { Write-Warn "Ignorado    $($r.Name) — $($r.Note)" }
-            'Fail'      { Write-Err  "Failed       $($r.Name) (código $($r.Code)) — $($r.Note)" }
-            default     { Write-Err  "Failed       $($r.Name) — Status inesperado '$($r.Status)'" }
+            'UpToDate'  { Write-Ok   "Updated           $($r.Name)" }
+            'SkipAdmin' { Write-Warn "Ignorado          $($r.Name) — $($r.Note)" }
+            'Fail'      { Write-Err  "Failed            $($r.Name) (código $($r.Code)) — $($r.Note)" }
+            default     { Write-Err  "Failed            $($r.Name) — Status inesperado '$($r.Status)'" }
         }
 
         $results.Add($r) | Out-Null
     }
 
-    # Pós-instalação Python (se presente na lista e OK/UpToDate)
-    if ($Global:WingetPackages -contains 'Python.Python.3.13') {
-        $pyOk = $results | Where-Object { $_.Name -eq 'Python.Python.3.13' -and $_.Status -in 'OK','UpToDate' }
+    # 3. Pós-instalação Python (se presente na lista e OK/UpToDate)
+    # Procuramos por um ID de Python na lista que foi instalado com sucesso
+    $pythonID = $Global:WingetPackages | Where-Object { $_ -match '^Python\.' } | Select-Object -First 1
+    
+    if ($pythonID) {
+        $pyOk = $results | Where-Object { $_.Name -eq $pythonID -and $_.Status -in 'OK','UpToDate' }
         if ($pyOk) {
             try {
                 if (Get-Command py -ErrorAction SilentlyContinue) {
@@ -320,15 +318,18 @@ function Install-WingetPackageBatch {
                     py -m pip install -U pywin32| Out-Null
                     Write-Ok "pip/pywin32 OK."
                 } else {
-                    Write-Warn "Comando 'py' não encontrado; pulei ajuste de pip/pywin32."
+                    Write-Warn "Comando 'py' não encontrado; pulei ajuste de pip/pywin32. Reabra o terminal ou verifique o PATH."
                 }
             } catch {
                 Write-Err "Falha ao ajustar pip/pywin32: $($_.Exception.Message)"
             }
+        } else {
+             Write-Warn "Python foi listado, mas a instalação falhou ou foi ignorada; pulei ajuste de pip/pywin32."
         }
     }
 
-    # ===== Resumo estilo “relatório” =====
+
+    # 4. ===== Resumo estilo “relatório” =====
     $elapsed = (Get-Date) - $t0
     $byStatus = $results | Group-Object Status | Sort-Object Name
     $tot = $results.Count
@@ -402,7 +403,7 @@ function Set-ThinkPadKeyboardLayout {
         $backupDir = Join-Path $env:ProgramData 'PostInstall'
         if (-not (Test-Path $backupDir)) { New-Item -Path $backupDir -ItemType Directory | Out-Null }
         $backupFile = Join-Path $backupDir ("keyboard-layout_backup_{0}.reg" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-        & reg.exe export 'HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout' $backupFile /y | Out-Null
+        & reg.exe export 'HKLM\SYSTEM\CurrentSet\Control\Keyboard Layout' $backupFile /y | Out-Null
         Write-Ok "Backup salvo em: $backupFile"
 
         # Aplica novo valor
