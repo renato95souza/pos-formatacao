@@ -1,5 +1,4 @@
 GNU.Nano
-Oracle.OCI-CLI
 DBeaver.DBeaver.Community
 Mirantis.Lens
 CrystalDewWorld.CrystalDiskInfo
@@ -7,6 +6,7 @@ WinSCP.WinSCP
 Headlamp.Headlamp
 TheDocumentFoundation.LibreOffice
 OBSProject.OBSStudio
+TarasovArtyom.BatteryMode
 Postman.Postman
 Famatech.AdvancedIPScanner
 PuTTY.PuTTY
