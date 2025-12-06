@@ -23,7 +23,6 @@ Mobatek.MobaXterm
 VideoLAN.VLC
 RARLab.WinRAR
 GNU.Wget2
-Spotify.Spotify
 Microsoft.PowerToys
 Fortinet.FortiClientVPN
 Rufus.Rufus
