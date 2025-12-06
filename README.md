@@ -8,7 +8,7 @@ Um utilitário **pós‑formatação** para Windows 11/10, escrito em PowerShell
 
 ### 📥 Como Executar
 
-Execute o comando abaixo no PowerShell para baixar e iniciar o script com privilégios elevados de administrador:
+Execute o comando abaixo no CMD para baixar e iniciar o script com privilégios elevados de administrador:
 
 ```CMD
 powershell.exe Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((irm ''https://raw.githubusercontent.com/renato95souza/pos-formatacao/main/post-install.ps1'')))"'
