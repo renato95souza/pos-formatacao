@@ -13,7 +13,7 @@ PuTTY.PuTTY
 Python.Python.3.13
 yt-dlp.yt-dlp
 Gyan.FFmpeg
-Flameshot.Flameshot
+Skillbrains.Lightshot
 Adobe.Acrobat.Reader.64-bit
 Mozilla.Firefox.pt-BR
 TeamViewer.TeamViewer
