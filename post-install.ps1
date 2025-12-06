@@ -9,6 +9,14 @@
 # Lista de pacotes Winget
 $Global:WingetPackages = @(
     'GNU.Nano',
+	'DBeaver.DBeaver.Community',
+	'Mirantis.Lens',
+	'CrystalDewWorld.CrystalDiskInfo',
+	'WinSCP.WinSCP',
+	'Headlamp.Headlamp',
+	'TheDocumentFoundation.LibreOffice',
+	'OBSProject.OBSStudio',
+	'Postman.Postman',
     'Famatech.AdvancedIPScanner',
     'PuTTY.PuTTY',
     'Python.Python.3.13',
