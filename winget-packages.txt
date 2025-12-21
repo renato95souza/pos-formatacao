@@ -1,3 +1,4 @@
+Microsoft.OneDrive
 GNU.Nano
 DBeaver.DBeaver.Community
 Mirantis.Lens
