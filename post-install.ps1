@@ -451,8 +451,29 @@ function Show-Menu {
     Write-Host "3) Windows 11 Debloat By Raphire"
 	Write-Host "4) Install App list with Winget + Ensure-PyWin32"
 	Write-Host "5) Change Lenovo Thinkpad keyboard Layout"
+	Write-Host "6) Disable Native PrintScreen (Snipping Tool)"
     Write-Host "0) Exit"
     Write-Host "=============================================================" -ForegroundColor White
+}
+
+function Disable-WindowsPrintScreen {
+    Write-Info "Desativando a Ferramenta de Captura nativa no Print Screen..."
+    try {
+        # Define o valor no registro
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Keyboard' -Name PrintScreenKeyForSnippingEnabled -Value 0
+        Write-Ok "Configuração aplicada no Registro."
+
+        # Opcional: Reiniciar o Explorer para aplicar imediatamente
+        $resp = Read-Host "Deseja reiniciar o Windows Explorer para aplicar agora? (S/N)"
+        if ($resp -match '^(s|y|S|Y)$') {
+            Write-Info "Reiniciando Explorer..."
+            Stop-Process -Name explorer -Force
+        } else {
+            Write-Info "A alteração será aplicada após o próximo logon ou reinicialização."
+        }
+    } catch {
+        Write-Err "Falha ao modificar o registro: $($_.Exception.Message)"
+    }
 }
 
 function Run-Menu {
@@ -465,7 +486,8 @@ function Run-Menu {
 			'2' { CreateSystemRestorePoint; Pause-Enter }
 			'3' { Run-Windebloat;           Pause-Enter }
             '4' { Install-WingetPackageBatch }
-			'5' { Set-ThinkPadKeyboardLayout }  
+			'5' { Set-ThinkPadKeyboardLayout }
+			'6' { Disable-WindowsPrintScreen; Pause-Enter }
 			'0' { Write-Info "Exiting..."; break }
 			default { Write-Warn "Invalid option."; Pause-Enter }
 }
