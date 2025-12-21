@@ -1,3 +1,4 @@
+OpenJS.NodeJS.LTS
 Microsoft.OneDrive
 GNU.Nano
 DBeaver.DBeaver.Community
