@@ -154,27 +154,32 @@ function Disable-WindowsPrintScreen {
 }
 
 function Restore-OneDriveBackups {
-    $OneDriveRoot = "$env:USERPROFILE\OneDrive - Pague Menos Comercio de Produtos Alimenticios Ltda"
+    # IMPORTANTE: Captura o usuário real logado, ignorando o contexto de Admin
+    $LoggedUser = (Get-WmiObject -class win32_process -Filter "Name='explorer.exe'" | 
+                  ForEach-Object { $_.GetOwner().User } | Select-Object -First 1)
+    
+    # Se falhar por algum motivo, usa o env:username atual
+    if ($null -eq $LoggedUser) { $LoggedUser = $env:USERNAME }
+
+    $RealUserProfile = "C:\Users\$LoggedUser"
+    $OneDriveRoot = "$RealUserProfile\OneDrive - Pague Menos Comercio de Produtos Alimenticios Ltda"
     $BackupPath = Join-Path $OneDriveRoot "Documentos\Backups"
 
-    # --- AVISO IMPORTANTE SOBRE DOWNLOAD DO ONEDRIVE ---
     Clear-Host
     Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" -ForegroundColor Red
     Write-Host " ATENÇÃO: Verifique se os arquivos estão baixados!" -ForegroundColor Yellow
-    Write-Host " No OneDrive, clique com o botão direito na pasta:"
-    Write-Host " 'Documentos\Backups' " -ForegroundColor Cyan
-    Write-Host " e selecione 'Sempre manter neste dispositivo'." -ForegroundColor Green
+    Write-Host " Usuário detectado: $LoggedUser" -ForegroundColor Cyan
+    Write-Host " Local de busca: $BackupPath"
     Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`n" -ForegroundColor Red
     
-    $confirm = Read-Host "Os arquivos já estão marcados para manter localmente? (y/n)"
+    $confirm = Read-Host "Os arquivos estão marcados para 'Manter sempre neste dispositivo'? (y/n)"
     if ($confirm -ne 'y') { return }
 
     if (-not (Test-Path $BackupPath)) {
-        Write-Err "Backup folder not found in OneDrive: $BackupPath"
+        Write-Err "Pasta de backup não encontrada: $BackupPath"
         return
     }
 
-    # Mapeamento atualizado para Notepad++ completo
     $Restores = @(
         @{ Zip="MobaXterm_Backup.zip";   Dest="AppData\Roaming\MobaXterm";      Proc="MobaXterm" }
         @{ Zip="DBeaverData_Backup.zip"; Dest="AppData\Roaming\DBeaverData";    Proc="dbeaver" }
@@ -182,15 +187,15 @@ function Restore-OneDriveBackups {
         @{ Zip="OCI_Config_Backup.zip";  Dest=".oci";                          Proc=$null }
     )
 
-    Write-Info "Starting restoration of backups..."
+    Write-Info "Iniciando restauração no perfil: $RealUserProfile"
 
     foreach ($item in $Restores) {
         $ZipFile = Join-Path $BackupPath $item.Zip
-        $FullDestPath = Join-Path $env:USERPROFILE $item.Dest
+        $FullDestPath = Join-Path $RealUserProfile $item.Dest
 
         if (Test-Path $ZipFile) {
             if ($item.Proc -and (Get-Process $item.Proc -ErrorAction SilentlyContinue)) {
-                Write-Warn "Closing $($item.Proc) to restore settings..."
+                Write-Warn "Fechando $($item.Proc)..."
                 Stop-Process -Name $item.Proc -Force -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
             }
@@ -200,17 +205,17 @@ function Restore-OneDriveBackups {
             }
             
             try {
-                Write-Info "Extracting $($item.Zip)..."
+                Write-Info "Restaurando $($item.Zip)..."
                 Expand-Archive -Path $ZipFile -DestinationPath $FullDestPath -Force
-                Write-Ok "Restored: $($item.Zip)"
+                Write-Ok "Sucesso: $($item.Zip)"
             } catch {
-                Write-Err "Failed to extract $($item.Zip). Error: $($_.Exception.Message)"
+                Write-Err "Erro ao extrair $($item.Zip). Verifique permissões."
             }
         } else {
-            Write-Warn "Zip file not found: $($item.Zip)"
+            Write-Warn "Arquivo ausente: $($item.Zip)"
         }
     }
-    Write-Ok "The backup restoration was completed using the folder: $BackupPath"
+    Write-Ok "O backup foi restaurado da pasta: $BackupPath"
 }
 
 # --- Menu Logic ---
