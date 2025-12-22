@@ -164,23 +164,21 @@ function Restore-OneDriveBackups {
     $OneDriveRoot = "$RealUserProfile\OneDrive - Pague Menos Comercio de Produtos Alimenticios Ltda"
     $BackupPath = Join-Path $OneDriveRoot "Documentos\Backups"
 
-    # --- TELA DE AVISO VISUAL ---
+  # --- TELA DE AVISO AJUSTADA (SEM QUEBRA) ---
     Clear-Host
-    Write-Host "╔════════════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
-    Write-Host "║                                                                    ║" -ForegroundColor Yellow
-    Write-Host "║   " -NoNewline -ForegroundColor Yellow; Write-Host "⚠️  ATENÇÃO: VERIFICAÇÃO DE SINCRONIZAÇÃO DO ONEDRIVE" -NoNewline -ForegroundColor Red; Write-Host "   ║" -ForegroundColor Yellow
-    Write-Host "║                                                                    ║" -ForegroundColor Yellow
-    Write-Host "╠════════════════════════════════════════════════════════════════════╣" -ForegroundColor Yellow
-    Write-Host "║                                                                    ║" -ForegroundColor Yellow
-    Write-Host "║  Usuário detectado: " -NoNewline -ForegroundColor White; Write-Host "$LoggedUser" -ForegroundColor Cyan
-    Write-Host "║  Pasta de busca:    " -NoNewline -ForegroundColor White; Write-Host "$BackupPath" -ForegroundColor Gray
-    Write-Host "║                                                                    ║" -ForegroundColor Yellow
-    Write-Host "║  " -NoNewline -ForegroundColor Yellow; Write-Host "PASSO OBRIGATÓRIO:" -ForegroundColor White -BackgroundColor Red
-    Write-Host "║  1. Abra seu OneDrive no Explorer                                  ║" -ForegroundColor Yellow
-    Write-Host "║  2. Clique com o botão direito na pasta 'Backups'                  ║" -ForegroundColor Yellow
-    Write-Host "║  3. Selecione '" -NoNewline -ForegroundColor Yellow; Write-Host "Sempre manter neste dispositivo" -NoNewline -ForegroundColor Green; Write-Host "'          ║" -ForegroundColor Yellow
-    Write-Host "║                                                                    ║" -ForegroundColor Yellow
-    Write-Host "╚════════════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
+    Write-Host "======================================================================" -ForegroundColor Yellow
+    Write-Host "  ⚠️  ATENÇÃO: SINCRONIZAÇÃO DO ONEDRIVE" -ForegroundColor Red
+    Write-Host "======================================================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Usuário detectado : " -NoNewline; Write-Host "$LoggedUser" -ForegroundColor Cyan
+    Write-Host "  Pasta de Backup    : " -NoNewline; Write-Host "$BackupPath" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  PASSO OBRIGATÓRIO:" -ForegroundColor White -BackgroundColor Red
+    Write-Host "  1. Abra seu OneDrive no Explorer" -ForegroundColor Yellow
+    Write-Host "  2. Clique com o botão direito na pasta 'Backups'" -ForegroundColor Yellow
+    Write-Host "  3. Selecione '" -NoNewline; Write-Host "Sempre manter neste dispositivo" -NoNewline -ForegroundColor Green; Write-Host "'" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "======================================================================" -ForegroundColor Yellow
     Write-Host ""
     
     $confirm = Read-Host " > Os arquivos já estão sincronizados e disponíveis localmente? (y/n)"
