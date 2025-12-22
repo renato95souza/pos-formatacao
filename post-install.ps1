@@ -154,32 +154,44 @@ function Disable-WindowsPrintScreen {
 }
 
 function Restore-OneDriveBackups {
-    # IMPORTANTE: Captura o usuário real logado, ignorando o contexto de Admin
+    # Captura o usuário real logado
     $LoggedUser = (Get-WmiObject -class win32_process -Filter "Name='explorer.exe'" | 
                   ForEach-Object { $_.GetOwner().User } | Select-Object -First 1)
     
-    # Se falhar por algum motivo, usa o env:username atual
     if ($null -eq $LoggedUser) { $LoggedUser = $env:USERNAME }
 
     $RealUserProfile = "C:\Users\$LoggedUser"
     $OneDriveRoot = "$RealUserProfile\OneDrive - Pague Menos Comercio de Produtos Alimenticios Ltda"
     $BackupPath = Join-Path $OneDriveRoot "Documentos\Backups"
 
+    # --- TELA DE AVISO VISUAL ---
     Clear-Host
-    Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" -ForegroundColor Red
-    Write-Host " ATENÇÃO: Verifique se os arquivos estão baixados!" -ForegroundColor Yellow
-    Write-Host " Usuário detectado: $LoggedUser" -ForegroundColor Cyan
-    Write-Host " Local de busca: $BackupPath"
-    Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`n" -ForegroundColor Red
+    Write-Host "╔════════════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
+    Write-Host "║                                                                    ║" -ForegroundColor Yellow
+    Write-Host "║   " -NoNewline -ForegroundColor Yellow; Write-Host "⚠️  ATENÇÃO: VERIFICAÇÃO DE SINCRONIZAÇÃO DO ONEDRIVE" -NoNewline -ForegroundColor Red; Write-Host "   ║" -ForegroundColor Yellow
+    Write-Host "║                                                                    ║" -ForegroundColor Yellow
+    Write-Host "╠════════════════════════════════════════════════════════════════════╣" -ForegroundColor Yellow
+    Write-Host "║                                                                    ║" -ForegroundColor Yellow
+    Write-Host "║  Usuário detectado: " -NoNewline -ForegroundColor White; Write-Host "$LoggedUser" -ForegroundColor Cyan
+    Write-Host "║  Pasta de busca:    " -NoNewline -ForegroundColor White; Write-Host "$BackupPath" -ForegroundColor Gray
+    Write-Host "║                                                                    ║" -ForegroundColor Yellow
+    Write-Host "║  " -NoNewline -ForegroundColor Yellow; Write-Host "PASSO OBRIGATÓRIO:" -ForegroundColor White -BackgroundColor Red
+    Write-Host "║  1. Abra seu OneDrive no Explorer                                  ║" -ForegroundColor Yellow
+    Write-Host "║  2. Clique com o botão direito na pasta 'Backups'                  ║" -ForegroundColor Yellow
+    Write-Host "║  3. Selecione '" -NoNewline -ForegroundColor Yellow; Write-Host "Sempre manter neste dispositivo" -NoNewline -ForegroundColor Green; Write-Host "'          ║" -ForegroundColor Yellow
+    Write-Host "║                                                                    ║" -ForegroundColor Yellow
+    Write-Host "╚════════════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
+    Write-Host ""
     
-    $confirm = Read-Host "Os arquivos estão marcados para 'Manter sempre neste dispositivo'? (y/n)"
+    $confirm = Read-Host " > Os arquivos já estão sincronizados e disponíveis localmente? (y/n)"
     if ($confirm -ne 'y') { return }
 
     if (-not (Test-Path $BackupPath)) {
-        Write-Err "Pasta de backup não encontrada: $BackupPath"
+        Write-Err "ERRO: Caminho não encontrado: $BackupPath"
         return
     }
 
+    # Restante da lógica de restauração...
     $Restores = @(
         @{ Zip="MobaXterm_Backup.zip";   Dest="AppData\Roaming\MobaXterm";      Proc="MobaXterm" }
         @{ Zip="DBeaverData_Backup.zip"; Dest="AppData\Roaming\DBeaverData";    Proc="dbeaver" }
@@ -187,7 +199,7 @@ function Restore-OneDriveBackups {
         @{ Zip="OCI_Config_Backup.zip";  Dest=".oci";                          Proc=$null }
     )
 
-    Write-Info "Iniciando restauração no perfil: $RealUserProfile"
+    Write-Info "Iniciando restauração de dados para: $LoggedUser"
 
     foreach ($item in $Restores) {
         $ZipFile = Join-Path $BackupPath $item.Zip
@@ -195,7 +207,7 @@ function Restore-OneDriveBackups {
 
         if (Test-Path $ZipFile) {
             if ($item.Proc -and (Get-Process $item.Proc -ErrorAction SilentlyContinue)) {
-                Write-Warn "Fechando $($item.Proc)..."
+                Write-Warn "Finalizando processo: $($item.Proc)"
                 Stop-Process -Name $item.Proc -Force -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
             }
@@ -205,17 +217,15 @@ function Restore-OneDriveBackups {
             }
             
             try {
-                Write-Info "Restaurando $($item.Zip)..."
+                Write-Info "Extraindo $($item.Zip)..."
                 Expand-Archive -Path $ZipFile -DestinationPath $FullDestPath -Force
-                Write-Ok "Sucesso: $($item.Zip)"
+                Write-Ok "Restaurado com sucesso!"
             } catch {
-                Write-Err "Erro ao extrair $($item.Zip). Verifique permissões."
+                Write-Err "Falha ao extrair $($item.Zip)."
             }
-        } else {
-            Write-Warn "Arquivo ausente: $($item.Zip)"
         }
     }
-    Write-Ok "O backup foi restaurado da pasta: $BackupPath"
+    Write-Ok "Backup salvo e restaurado da pasta: $BackupPath"
 }
 
 # --- Menu Logic ---
