@@ -10,6 +10,7 @@
 $Global:WingetListUrl = 'https://raw.githubusercontent.com/renato95souza/pos-formatacao/refs/heads/main/winget-packages.txt'
 $Global:WingetPackages = @()
 
+# --- Helpers ---
 function Write-Info($msg)  { Write-Host "[INFO]  $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)    { Write-Host "[OK]    $msg`n" -ForegroundColor Green }
 function Write-Warn($msg)  { Write-Host "[WARN]  $msg" -ForegroundColor Yellow }
@@ -41,6 +42,8 @@ function Ensure-Admin {
         exit
     }
 }
+
+# --- Functions ---
 
 function CreateSystemRestorePoint {
     Write-Output "> Attempting to create a system restore point..."
@@ -150,6 +153,68 @@ function Disable-WindowsPrintScreen {
     if ((Read-Host "Restart Explorer now? (y/n)") -eq 'y') { Stop-Process -Name explorer -Force }
 }
 
+function Restore-OneDriveBackups {
+    $OneDriveRoot = "$env:USERPROFILE\OneDrive - Pague Menos Comercio de Produtos Alimenticios Ltda"
+    $BackupPath = Join-Path $OneDriveRoot "Documentos\Backups"
+
+    # --- AVISO IMPORTANTE SOBRE DOWNLOAD DO ONEDRIVE ---
+    Clear-Host
+    Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" -ForegroundColor Red
+    Write-Host " ATENÇÃO: Verifique se os arquivos estão baixados!" -ForegroundColor Yellow
+    Write-Host " No OneDrive, clique com o botão direito na pasta:"
+    Write-Host " 'Documentos\Backups' " -ForegroundColor Cyan
+    Write-Host " e selecione 'Sempre manter neste dispositivo'." -ForegroundColor Green
+    Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`n" -ForegroundColor Red
+    
+    $confirm = Read-Host "Os arquivos já estão marcados para manter localmente? (y/n)"
+    if ($confirm -ne 'y') { return }
+
+    if (-not (Test-Path $BackupPath)) {
+        Write-Err "Backup folder not found in OneDrive: $BackupPath"
+        return
+    }
+
+    # Mapeamento atualizado para Notepad++ completo
+    $Restores = @(
+        @{ Zip="MobaXterm_Backup.zip";   Dest="AppData\Roaming\MobaXterm";      Proc="MobaXterm" }
+        @{ Zip="DBeaverData_Backup.zip"; Dest="AppData\Roaming\DBeaverData";    Proc="dbeaver" }
+        @{ Zip="NotepadPP_Backup.zip";   Dest="AppData\Roaming\Notepad++";      Proc="notepad++" }
+        @{ Zip="OCI_Config_Backup.zip";  Dest=".oci";                          Proc=$null }
+    )
+
+    Write-Info "Starting restoration of backups..."
+
+    foreach ($item in $Restores) {
+        $ZipFile = Join-Path $BackupPath $item.Zip
+        $FullDestPath = Join-Path $env:USERPROFILE $item.Dest
+
+        if (Test-Path $ZipFile) {
+            if ($item.Proc -and (Get-Process $item.Proc -ErrorAction SilentlyContinue)) {
+                Write-Warn "Closing $($item.Proc) to restore settings..."
+                Stop-Process -Name $item.Proc -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 2
+            }
+
+            if (-not (Test-Path $FullDestPath)) { 
+                New-Item -Path $FullDestPath -ItemType Directory -Force | Out-Null 
+            }
+            
+            try {
+                Write-Info "Extracting $($item.Zip)..."
+                Expand-Archive -Path $ZipFile -DestinationPath $FullDestPath -Force
+                Write-Ok "Restored: $($item.Zip)"
+            } catch {
+                Write-Err "Failed to extract $($item.Zip). Error: $($_.Exception.Message)"
+            }
+        } else {
+            Write-Warn "Zip file not found: $($item.Zip)"
+        }
+    }
+    Write-Ok "The backup restoration was completed using the folder: $BackupPath"
+}
+
+# --- Menu Logic ---
+
 function Show-Menu {
     Clear-Host
     Write-Host "================ Post-Install Utility (PowerShell) ================" -ForegroundColor White
@@ -160,6 +225,7 @@ function Show-Menu {
     Write-Host "5) Change Lenovo ThinkPad Keyboard Layout"
     Write-Host "6) Disable Native PrintScreen (Snipping Tool)"
     Write-Host "7) Update All Existing Apps (Winget Upgrade)"
+    Write-Host "8) Restore Apps Backup (OneDrive)"
     Write-Host "0) Exit"
     Write-Host "===================================================================" -ForegroundColor White
 }
@@ -177,6 +243,7 @@ function Run-Menu {
             '5' { Set-ThinkPadKeyboardLayout; Pause-Enter }
             '6' { Disable-WindowsPrintScreen; Pause-Enter }
             '7' { Write-Info "Updating all apps..."; winget upgrade --all --include-unknown; Pause-Enter }
+            '8' { Restore-OneDriveBackups; Pause-Enter }
             '0' { break }
         }
     } while ($choice -ne '0')
