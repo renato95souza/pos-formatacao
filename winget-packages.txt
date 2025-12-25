@@ -6,7 +6,6 @@ Mirantis.Lens
 CrystalDewWorld.CrystalDiskInfo
 WinSCP.WinSCP
 Headlamp.Headlamp
-TheDocumentFoundation.LibreOffice
 OBSProject.OBSStudio
 TarasovArtyom.BatteryMode
 Postman.Postman
