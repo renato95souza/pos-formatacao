@@ -47,9 +47,9 @@ function Ensure-Admin {
 
 function CreateSystemRestorePoint {
     Write-Output "> Attempting to create a system restore point..."
-    $SysRestore = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" -Name "RPSessionInterval"
-    if ($SysRestore.RPSessionInterval -eq 0) {
-        if ($( Read-Host -Prompt "System restore is disabled. Enable and create point? (y/n)") -eq 'y') {
+    $SysRestore = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" -Name "RPSessionInterval" -ErrorAction SilentlyContinue
+    if ($null -eq $SysRestore -or $SysRestore.RPSessionInterval -eq 0) {
+        if ($( Read-Host -Prompt "System restore is disabled or restricted. Enable and create point? (y/n)") -eq 'y') {
             Enable-ComputerRestore -Drive "$env:SystemDrive"
         } else { return }
     }
@@ -154,42 +154,44 @@ function Disable-WindowsPrintScreen {
 }
 
 function Restore-OneDriveBackups {
-    # Captura o usuário real logado
-    $LoggedUser = (Get-WmiObject -class win32_process -Filter "Name='explorer.exe'" | 
-                  ForEach-Object { $_.GetOwner().User } | Select-Object -First 1)
-    
-    if ($null -eq $LoggedUser) { $LoggedUser = $env:USERNAME }
+    # --- Step 1: Detect REAL User and Documents Path ---
+    # This logic matches your pre-format script to handle different tenancies/OneDrive paths
+    try {
+        $ShellApp = New-Object -ComObject Shell.Application
+        $DocumentsPath = $ShellApp.NameSpace(0x05).Self.Path
+    } catch {
+        $DocumentsPath = Join-Path $env:USERPROFILE "Documents"
+    }
 
-    $RealUserProfile = "C:\Users\$LoggedUser"
-    $OneDriveRoot = "$RealUserProfile\OneDrive - Pague Menos Comercio de Produtos Alimenticios Ltda"
-    $BackupPath = Join-Path $OneDriveRoot "Documentos\Backups"
+    $BackupPath = Join-Path $DocumentsPath "Backups"
+    $RealUserProfile = $env:USERPROFILE
 
-  # --- TELA DE AVISO AJUSTADA (SEM QUEBRA) ---
+    # --- Step 2: Warning and Sync Check ---
     Clear-Host
     Write-Host "======================================================================" -ForegroundColor Yellow
-    Write-Host "  ⚠️  ATENÇÃO: SINCRONIZAÇÃO DO ONEDRIVE" -ForegroundColor Red
+    Write-Host "  ⚠️  ATTENTION: ONEDRIVE SYNC CHECK" -ForegroundColor Red
     Write-Host "======================================================================" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  Usuário detectado : " -NoNewline; Write-Host "$LoggedUser" -ForegroundColor Cyan
-    Write-Host "  Pasta de Backup    : " -NoNewline; Write-Host "$BackupPath" -ForegroundColor Gray
+    Write-Host "  User detected   : " -NoNewline; Write-Host "$env:USERNAME" -ForegroundColor Cyan
+    Write-Host "  Backup Folder   : " -NoNewline; Write-Host "$BackupPath" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  PASSO OBRIGATÓRIO:" -ForegroundColor White -BackgroundColor Red
-    Write-Host "  1. Abra seu OneDrive no Explorer" -ForegroundColor Yellow
-    Write-Host "  2. Clique com o botão direito na pasta 'Backups'" -ForegroundColor Yellow
-    Write-Host "  3. Selecione '" -NoNewline; Write-Host "Sempre manter neste dispositivo" -NoNewline -ForegroundColor Green; Write-Host "'" -ForegroundColor Yellow
+    Write-Host "  MANDATORY STEP:" -ForegroundColor White -BackgroundColor Red
+    Write-Host "  1. Open OneDrive in File Explorer."
+    Write-Host "  2. Right-click the 'Backups' folder."
+    Write-Host "  3. Select '" -NoNewline; Write-Host "Always keep on this device" -NoNewline -ForegroundColor Green; Write-Host "'."
     Write-Host ""
     Write-Host "======================================================================" -ForegroundColor Yellow
     Write-Host ""
     
-    $confirm = Read-Host " > Os arquivos já estão sincronizados e disponíveis localmente? (y/n)"
+    $confirm = Read-Host " > Are files synced and available locally? (y/n)"
     if ($confirm -ne 'y') { return }
 
     if (-not (Test-Path $BackupPath)) {
-        Write-Err "ERRO: Caminho não encontrado: $BackupPath"
+        Write-Err "ERROR: Path not found: $BackupPath"
         return
     }
 
-    # Restante da lógica de restauração...
+    # --- Step 3: Restore App Folders ---
     $Restores = @(
         @{ Zip="MobaXterm_Backup.zip";   Dest="AppData\Roaming\MobaXterm";      Proc="MobaXterm" }
         @{ Zip="DBeaverData_Backup.zip"; Dest="AppData\Roaming\DBeaverData";    Proc="dbeaver" }
@@ -197,33 +199,69 @@ function Restore-OneDriveBackups {
         @{ Zip="OCI_Config_Backup.zip";  Dest=".oci";                          Proc=$null }
     )
 
-    Write-Info "Iniciando restauração de dados para: $LoggedUser"
+    Write-Info "Restoring application data..."
 
     foreach ($item in $Restores) {
         $ZipFile = Join-Path $BackupPath $item.Zip
         $FullDestPath = Join-Path $RealUserProfile $item.Dest
 
         if (Test-Path $ZipFile) {
+            # Close app if running
             if ($item.Proc -and (Get-Process $item.Proc -ErrorAction SilentlyContinue)) {
-                Write-Warn "Finalizando processo: $($item.Proc)"
+                Write-Warn "Closing process: $($item.Proc)"
                 Stop-Process -Name $item.Proc -Force -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
             }
 
+            # Create destination if missing
             if (-not (Test-Path $FullDestPath)) { 
                 New-Item -Path $FullDestPath -ItemType Directory -Force | Out-Null 
             }
             
             try {
-                Write-Info "Extraindo $($item.Zip)..."
-                Expand-Archive -Path $ZipFile -DestinationPath $FullDestPath -Force
-                Write-Ok "Restaurado com sucesso!"
+                Write-Info "Extracting $($item.Zip)..."
+                # Extracting to parent because ZIP contains the folder itself usually, 
+                # or use Force to overwrite content inside.
+                Expand-Archive -Path $ZipFile -DestinationPath (Split-Path $FullDestPath -Parent) -Force
+                Write-Ok "Restored $FullDestPath"
             } catch {
-                Write-Err "Falha ao extrair $($item.Zip)."
+                Write-Err "Failed to extract $($item.Zip)."
             }
+        } else {
+            Write-Warn "Backup file not found: $($item.Zip)"
         }
     }
-    Write-Ok "Backup salvo e restaurado da pasta: $BackupPath"
+
+    # --- Step 4: Restore Oracle TNS ---
+    Write-Info "Restoring Oracle TNS Names..."
+    $OracleDir = "C:\app\client\product\19.0.0\client_1\network\admin"
+    $TnsSource = Join-Path $BackupPath "tnsnames.ora"
+
+    if (Test-Path $TnsSource) {
+        if (-not (Test-Path $OracleDir)) { 
+            New-Item -Path $OracleDir -ItemType Directory -Force | Out-Null 
+        }
+        Copy-Item -Path $TnsSource -Destination $OracleDir -Force
+        Write-Ok "TNSNames restored to $OracleDir"
+    } else {
+        Write-Warn "tnsnames.ora backup not found."
+    }
+
+    # --- Step 5: Restore WinSCP Registry ---
+    Write-Info "Restoring WinSCP Registry..."
+    $WinSCPReg = Join-Path $BackupPath "WinSCP_Backup.reg"
+    if (Test-Path $WinSCPReg) {
+        try {
+            Start-Process "reg.exe" -ArgumentList "import `"$WinSCPReg`"" -Wait -ErrorAction Stop
+            Write-Ok "WinSCP registry imported successfully."
+        } catch {
+            Write-Err "Failed to import WinSCP registry."
+        }
+    } else {
+        Write-Warn "WinSCP_Backup.reg not found."
+    }
+
+    Write-Ok "Restore process completed from: $BackupPath"
 }
 
 # --- Menu Logic ---
